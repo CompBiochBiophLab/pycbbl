@@ -1,1 +1,2 @@
-from . import rosetta
+from .rosetta import rosetta
+from . import clustering
