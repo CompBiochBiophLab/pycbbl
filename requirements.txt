@@ -1,0 +1,6 @@
+biopython
+numpy
+blast
+matplotlib
+scipy
+pandas

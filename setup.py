@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="cbbl", 
+    name="cbbl",
     version="0.0.1",
     author="Martin Floor",
     author_email="martinfloor@gmail.com",
@@ -24,5 +24,7 @@ setuptools.setup(
     'pandas',
     'matplotlib',
     'scipy',
+    'biopython',
+    'matplotlib',
     ],
 )
