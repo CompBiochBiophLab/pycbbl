@@ -95,6 +95,45 @@ def getChainSequence(chain):
     else:
         return sequence
 
+def chainAsStructure(chains):
+    """
+    This method creates a new Structure object containing only the given chains.
+
+    Parameters
+    ----------
+    chains : list or Bio.PDB.Chain
+        Chain or chains to be added to the new structure object.
+
+    Returns
+    -------
+    structure : Bio.PDB.Structure
+    """
+
+    if not isinstance(chains, list):
+        chains = [chains]
+
+    structure = PDB.Structure.Structure(0)
+    model = PDB.Model.Model(0)
+    for chain in chains:
+        model.add(chain)
+    structure.add(model)
+
+    return structure
+
+def saveStructureToPDB(structure, output):
+    """
+    Saves a structure into a PDB file
+
+    Parameters
+    ----------
+    structure : list or Bio.PDB.Structure
+        Structure to save
+    """
+
+    io = PDB.PDBIO()
+    io.set_structure(structure)
+    io.save(output)
+
 class blast:
     """
     Class to hold methods to work with blast executable.

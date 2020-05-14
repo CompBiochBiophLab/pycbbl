@@ -11,8 +11,14 @@ class clusterByDistance:
 
     Attributes
     ----------
-    distances : array
-        Array containning the set of pairwise distances to cluster with
+    distances : numpy.ndarray
+        Array containing the set of pairwise distances to use for clustering
+    verbose : bool
+        Whether to print the outputs of cluster calculations.
+    linkage : numpy.ndarray
+        Hierarchical clustering encoded as a linkage matrix.
+    clusters : dict
+        Dictionary containing the elements of each cluster or its centroids.
     """
 
     def __init__(self, distance_matrix, verbose=False):
@@ -22,10 +28,10 @@ class clusterByDistance:
 
         Parameters
         ----------
-        distance_matrix : numpy.array
-            Array containing the set of pairwise distances to cluster with
+        distance_matrix : numpy.ndarray
+            Array containing the set of pairwise distances to use for clustering
         verbose : bool (False)
-            Whether to print clustering information
+            Whether to print clustering information.
         """
 
         # Define attributes
@@ -49,16 +55,16 @@ class clusterByDistance:
             print('Max pairwise distance: %.3f [diagonal values ignored]' % max_value)
             print('Min pairwise distance: %.3f [diagonal values ignored]' % min_value)
 
-    def clusterByDistance(self, clustering_distance, return_centroids=False):
+    def getClusters(self, clustering_distance, return_centroids=False):
         """
         Define clusters based on a threshold distances
 
         Parameters
         ----------
         clustering_distance : float
-            Threshold  value to cluster matrix distance elements
+            Threshold  value to cluster matrix distance elements.
         return_centroids : bool (False)
-            return only the centroids of each cluster
+            Return only the centroids of each cluster.
 
         Returns
         -------
@@ -70,10 +76,10 @@ class clusterByDistance:
         self.clusters = fcluster(self.linkage, clustering_distance, criterion='distance')
 
         if self.verbose:
-            print('There are '+str(len(set(clusters)))+' clusters at clustering distance '+str(clustering_distance))
+            print('There are '+str(len(set(self.clusters)))+' clusters at clustering distance '+str(clustering_distance))
 
-        C = { x+1:[] for x in range(len(set(clusters))) }
-        for i,c in enumerate(clusters):
+        C = { x+1:[] for x in range(len(set(self.clusters))) }
+        for i,c in enumerate(self.clusters):
             C[c].append(i)
 
         if return_centroids == True:

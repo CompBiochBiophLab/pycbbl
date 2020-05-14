@@ -1,5 +1,4 @@
-from pycbbl.PDB import getChainSequence
-from pycbbl.PDB import blast
+from pycbbl.PDB import getChainSequence, chainAsStructure, saveStructureToPDB, blast
 from pycbbl import clustering
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -23,6 +22,8 @@ class moleculeSelector:
         Dictionary containing Bio.PDB.Structure objects for each pdb file.
     sequence : OrderedDict
         Dictionary containing the sequences of each PDB protein chain ID.
+    sequence_lengths : dict
+        Lenght of the sequences of each PDB protein chain ID.
     pidMatrix : np.array
         Matrix of PID values for all sequences.
     sequence_matrix_map : dict
@@ -31,19 +32,35 @@ class moleculeSelector:
     matrix_sequence_map : dict
         Dictionary mapping the positions in the comparison square matrices to the
         (pdb_code, chain_id) tuples.
-    pid_cluster = pycbbl.clustering.hierarchical.clusterByDistance
-        Object that contains pid clustering informations
+    pid_clustering = pycbbl.clustering.hierarchical.clusterByDistance
+        Object that contains pid clustering informations.
+    pid_clusters = dict
+        Dictionary containing the elements of each PID cluster or only the centroids.
     pid_file = str
         File to write or read PIDs from.
+    selection : Dictionary containing selections
 
     Methods
     -------
     calculatePIDMatrix()
         Calculate pairwise PID values for all sequences in the PDBs
-    plotSequenceLengthDistribution()
-        Plot the distribution of chain sequence lenghts
-
+    clusterByPID()
+        Cluster PDBs by PID values using hierarchical clustering.
+    plotDendrogram()
+        Plot a dendrogram based on the hierarchical clustering.
+    selectBySequenceLengthDistribution()
+        Apply selection based on the distribution of chain sequence lenghts
+    selectByReferencePID()
+        Apply selection based on the distribution of PID regarding a reference pdb
+        chain.
+    plotSequenceLengthVsAveragePID
+        Plot a scatter plot to visualize the lenght of the pdb chain sequences vs
+        the average PID of each row in the PID matrix.
+    plotSequenceLengthVsReferencePID
+        Plot a scatter plot to visualize the lenght of the pdb chain sequences vs
+        the PID values to a reference PDB chain (a specific row in the PID matrix).
     """
+
     def __init__(self, pdb_folder, exclude=[], pid_file=None):
         """
         Initialize molecule selector class. This stores the pdb paths, reads structures
@@ -64,14 +81,17 @@ class moleculeSelector:
         self.pdb_paths = OrderedDict()
         self.structure = OrderedDict()
         self.sequence = OrderedDict()
+        self.sequence_lengths = {}
         self.sequence_matrix_map = {}
         self.matrix_sequence_map = {}
         self.excluded = []
         self.pid_file = pid_file
+        self.selection = {}
+        self.last_selection = 0
 
         # Define attributes holders (Initialized as None)
         self.pidMatrix = None
-        self.pid_cluster = None
+        self.pid_clustering = None
 
         # Check input variables
         if isinstance(exclude, str):
@@ -98,9 +118,12 @@ class moleculeSelector:
         count = 0
         for pdb in self.structure:
             self.sequence[pdb] = OrderedDict()
+            self.sequence_lengths[pdb] = OrderedDict()
             for chain in self.structure[pdb].get_chains():
+                # Store sequence and its length
                 self.sequence[pdb][chain.id] = getChainSequence(chain)
-                # Store mapping function to find elements in comparison matrix
+                self.sequence_lengths[pdb][chain.id] = len(self.sequence[pdb][chain.id])
+                # Store mapping function to sort and find elements in comparison matrix
                 self.sequence_matrix_map[(pdb, chain.id)] = count
                 self.matrix_sequence_map[(count)] = (pdb, chain.id)
                 count += 1
@@ -153,26 +176,35 @@ class moleculeSelector:
 
         return self.pidMatrix
 
-    def clusterByPID(self, clustering_distance, verbose=False):
+    def clusterByPID(self, clustering_distance, verbose=False, return_centroids=False):
         """
-        Calculate clusters based on PID distance matrix
+        Calculate clusters based on PID distance matrix. Please plot dendrogram
+        to estimate the threshold values.
 
         Parameters
         ----------
         clustering_distance : float
-            PID value to cluster structures
-        import pdb; pdb.set_trace()
+            PID value to cluster structures.
         verbose : bool (False)
-            Print clustering information to screen
+            Print clustering information to screen.
+        return_centroids : bool (False)
+            Return only the centroids of each cluster.
         """
 
         if verbose:
             print('Calculating PID matrix')
+        # Calcualte PID matrix
         self.calculatePIDMatrix()
         if verbose:
-            print('Calculating clusters with hierarchical clustering')
-        self.pid_cluster = clustering.hierarchical.clusterByDistance(self.pidMatrix,
-                           verbose=verbose)
+            print('Calculating clusters at threshold distance %.2f' % clustering_distance)
+        # Calculate clusters
+        self.pid_clustering = clustering.hierarchical.clusterByDistance(self.pidMatrix,
+                                                                       verbose=verbose)
+
+        self.pid_clusters = self.pid_clustering.getClusters(clustering_distance,
+                                              return_centroids=return_centroids)
+
+        return self.pid_clusters
 
     def plotDendrogram(self, dpi=100):
         """
@@ -183,33 +215,287 @@ class moleculeSelector:
         dpi : int
             Resolution of the generated plot.
         """
-        if self.pid_cluster != None:
-            self.pid_cluster.plotDendrogram(dpi=dpi)
+        if self.pid_clustering != None:
+            self.pid_clustering.plotDendrogram(dpi=dpi)
         else:
             raise ValueError('First you must calculate the PID clusters with clusterByPID()')
 
-    def plotSequenceLengthDistribution(self, dpi=100, bins=None):
+    def selectBySequenceLengthDistribution(self, dpi=100, bins=None, vertical_line=None, select=0, new_selection=False):
         """
-        This method plots the sequence length distribution of the chains in the
-        PDB file.
+        This method allows to select the left (select=1) or the right side (select=2)
+        of the sequences lengths distribution. Without keywords it generates a plot
+        of the distribution. Adding the keyword vertical_line divides the distribution
+        into left and right side. If, additionally, the keyword select is given a
+        new selection is created based on the side of the distribution selected.
+        The default value of select is 0 and means that no selection will be carried
+        out.
 
         Parameters
         ----------
         dpi : int
             Resolution of the generated plot.
+        bins : range
+            Bins to use in the histogram of the distribution.
+        vertical_line : float
+            Sequence length value at which to divide the distribution.
+        select : int (0)
+            Side of the distribution to select: 0 left and 1 for right side.
+        """
+
+        if not isinstance(select, int):
+            raise ValueError('select must be an integer. Please see documentation.')
+
+        selection = set()
+
+        # Divide values into two distributions by vertical_line
+        if vertical_line != None:
+            ls_sequence_lengths = []
+            rs_sequence_lengths = []
+            for pdb in self.sequence:
+                for chain in self.sequence[pdb]:
+                    sl = self.sequence_lengths[pdb][chain]
+                    if sl <= vertical_line:
+                        ls_sequence_lengths.append(sl)
+                        if select == 1:
+                            i = self.sequence_matrix_map[(pdb,chain)]
+                            selection.add(i)
+                    else:
+                        rs_sequence_lengths.append(sl)
+                        if select == 2:
+                            i = self.sequence_matrix_map[(pdb,chain)]
+                            selection.add(i)
+
+            if select > 0:
+                if new_selection:
+                    self.last_selection += 1
+                self.selection[self.last_selection] = selection
+
+        else:
+            # Gather the values of sequence lengths
+            sequence_lengths = []
+            for pdb in self.sequence:
+                for chain in self.sequence[pdb]:
+                    sequence_lengths.append(self.sequence_lengths[pdb][chain])
+
+        # Plot sequences length distribution
+        figure = plt.figure(dpi=dpi)
+        plt.xlabel('Sequence length')
+        plt.ylabel('Nº of polypeptides')
+
+        if vertical_line != None:
+            # Define bins as the single spaced sequence range
+            if bins == None:
+                bins = range(min(ls_sequence_lengths), max(rs_sequence_lengths))
+            hist = plt.hist(ls_sequence_lengths, bins=bins, color='r')
+            hist = plt.hist(rs_sequence_lengths, bins=bins, color='b')
+            plt.axvline(vertical_line, ls='--', c='k')
+            plt.xlim(min(ls_sequence_lengths)-2, max(rs_sequence_lengths)+2)
+            if select == 1:
+                plt.axvspan(min(ls_sequence_lengths)-2, vertical_line, facecolor='g', alpha=0.25)
+            elif select == 2:
+                plt.axvspan(vertical_line, max(rs_sequence_lengths)+2, facecolor='g', alpha=0.25)
+        else:
+            if bins == None:
+                bins = range(min(sequence_lengths), max(sequence_lengths))
+            hist = plt.hist(sequence_lengths, bins=bins)
+            plt.xlim(min(sequence_lengths)-2, max(sequence_lengths)+2)
+
+    def selectByReferencePID(self, reference, dpi=100, vertical_line=None, select=0, new_selection=False, apply_to_selection=None):
+        """
+        This method allows to select the left (select=1) or the right side (select=2)
+        of the PID to a reference distribution. Without keywords it generates a plot
+        of the distribution. Adding the keyword vertical_line divides the distribution
+        into left and right side. If, additionally, the keyword select is given, a
+        new selection is created based on the side of the distribution selected.
+        The default value of select is 0 and means that no selection will be carried
+        out.
+
+        Parameters
+        ----------
+        reference : tuples
+            2 elements-tuple containing the pdb (str) and chain id (str) of the reference PDB chain.
+        dpi : int
+            Resolution of the generated plot.
+        vertical_line : float
+            Sequence length value at which to divide the distribution.
+        select : int (0)
+            Side of the distribution to select: 0 left and 1 for right side.
+        apply_to_selection : int
+            Use a previous selection of models stored in the selection attribute
+            of this class.
+        """
+
+        if not isinstance(select, int):
+            raise ValueError('select must be an integer. Please see documentation.')
+
+        selection = set()
+
+        # Define reference index
+        reference_index = self.sequence_matrix_map[(reference[0], reference[1])]
+
+        # Divide values into two distributions by vertical_line
+        if vertical_line != None:
+            ls_reference_PIDs = []
+            rs_reference_PIDs = []
+
+            # Gather reference PIDs values
+            for i in range(self.pidMatrix.shape[0]):
+                if apply_to_selection in self.selection:
+                    if i not in self.selection[apply_to_selection]:
+                        continue
+                rpid = self.pidMatrix[i][reference_index]
+                if rpid <= vertical_line:
+                    ls_reference_PIDs.append(rpid)
+                    if select == 1:
+                        selection.add(i)
+                else:
+                    rs_reference_PIDs.append(rpid)
+                    if select == 2:
+                        selection.add(i)
+
+            if select > 0:
+                if new_selection:
+                    self.last_selection += 1
+                self.selection[self.last_selection] = selection
+
+        else:
+            # Gather the values of sequence lengths
+            reference_PIDs = []
+            for i in range(self.pidMatrix.shape[0]):
+                rpid = self.pidMatrix[i][reference_index]
+                reference_PIDs.append(rpid)
+
+        # Plot sequences length distribution
+        figure = plt.figure(dpi=dpi)
+        plt.xlabel('PID to chain %s of pdb %s' % (reference[1], reference[0]))
+        plt.ylabel('Nº of polypeptides')
+        bins = [i/100 for i in range(0,100)]
+        plt.xlim(0, 1)
+
+        if vertical_line != None:
+            hist = plt.hist(ls_reference_PIDs, bins=bins, color='r')
+            hist = plt.hist(rs_reference_PIDs, bins=bins, color='b')
+            plt.axvline(vertical_line, ls='--', c='k')
+            if select == 1:
+                plt.axvspan(0, vertical_line, facecolor='g', alpha=0.25)
+            elif select == 2:
+                plt.axvspan(vertical_line, 1, facecolor='g', alpha=0.25)
+        else:
+            hist = plt.hist(reference_PIDs, bins=bins)
+
+    def getSelectionTuples(self, selection):
+        """
+        Get the tuples (pdb_code,chain) for a specific selection index.
+
+        Parameters
+        ----------
+        selection : int
+            Selection index to use
+        """
+
+        models = []
+
+        for i in self.selection[selection]:
+            models.append(self.matrix_sequence_map[i])
+
+        return models
+
+    def saveSelectionChains(self, selection, output_folder):
+        """
+        Save separate PDB for each of the selected chains
+
+        Parameters
+        ----------
+        selection : int
+            Selection index to use
+        output_folder : str
+            Path to the folder to store models
+        """
+
+        if not os.path.exists(output_folder):
+            os.mkdir(output_folder)
+
+        for m in self.getSelectionTuples(selection):
+            for chain in self.structure[m[0]].get_chains():
+                if chain.id == m[1]:
+                    structure = chainAsStructure(chain)
+                    output_path = output_folder+'/'+m[0]+'_'+m[1]+'.pdb'
+                    saveStructureToPDB(structure,  output_path)
+
+    def plotSequenceLengthVsAveragePID(self, dpi=100, vertical_line=None, horizontal_line=None, **kwargs):
+        """
+        This method plots the sequence length distribution vs the average PIDs of
+        the chains in the PDB files.
+
+        Parameters
+        ----------
+        dpi : int
+            Resolution of the generated plot.
+        vertical_line : float
+            Value to plot a vertical dashed line
+        horizontal_line : float
+            Value to plot a horizontal dashed line
+        **kwargs
+            Keywords for the matplotlib.pyplot.scatter method.
+        """
+        sequence_lengths = []
+        average_PIDs = []
+
+        # Gather sequence lengths and average PIDs values
+        for i in range(self.pidMatrix.shape[0]):
+            (pdb,chain) = self.matrix_sequence_map[i]
+            sequence_lengths.append(self.sequence_lengths[pdb][chain])
+            average_PIDs.append(np.average(self.pidMatrix[i]))
+
+        # Plot sequence lengths vs average PIDs values
+        figure = plt.figure(dpi=dpi)
+        plt.scatter(sequence_lengths, average_PIDs, **kwargs)
+        plt.xlabel('Sequence length')
+        plt.ylabel('Average PID')
+        if horizontal_line != None:
+            plt.axhline(horizontal_line, ls='--')
+        if vertical_line != None:
+            plt.axvline(vertical_line, ls='--')
+        plt.xlabel('Sequence length')
+        plt.ylabel('Average PID')
+
+    def plotSequenceLengthVsReferencePID(self, reference, dpi=100, vertical_line=None, horizontal_line=None, **kwargs):
+        """
+        This method plots the sequence length distribution vs PIDs to a reference of
+        the chains in the PDB files
+
+        Parameters
+        ----------
+        reference : tuples
+            2 elements-tuple containing the pdb (str) and chain id (str) of the reference PDB chain.
+        dpi : int
+            Resolution of the generated plot.
+        vertical_line : float
+            Value to plot a vertical dashed line
+        horizontal_line : float
+            Value to plot a horizontal dashed line
+        **kwargs
+            Keywords for the matplotlib.pyplot.scatter method.
         """
 
         sequence_lengths = []
+        reference_PIDs = []
+        reference_index = self.sequence_matrix_map[(reference[0], reference[1])]
 
-        for pdb in self.sequence:
-            for chain in self.sequence[pdb]:
-                sequence_lengths.append(len(self.sequence[pdb][chain]))
+        # Gather sequence lengths and reference PIDs values
+        for i in range(self.pidMatrix.shape[0]):
+            (pdb,chain) = self.matrix_sequence_map[i]
+            sequence_lengths.append(self.sequence_lengths[pdb][chain])
+            reference_PIDs.append(self.pidMatrix[i][reference_index])
 
-        # Define bins as the single spaced sequence range
-        if bins == None:
-            bins = range(min(sequence_lengths), max(sequence_lengths))
+        # Plot sequence lengths vs reference PIDs values
         figure = plt.figure(dpi=dpi)
-        hist = plt.hist(sequence_lengths, bins=bins)
+        plt.scatter(sequence_lengths, reference_PIDs, **kwargs)
         plt.xlabel('Sequence length')
-        plt.ylabel('Nº of polypeptides')
-        plt.xlim(min(sequence_lengths)-2, max(sequence_lengths)+2)
+        plt.ylabel('Average PID')
+        if horizontal_line != None:
+            plt.axhline(horizontal_line, ls='--')
+        if vertical_line != None:
+            plt.axvline(vertical_line, ls='--')
+        plt.xlabel('Sequence length')
+        plt.ylabel('PID to chain %s of pdb %s' % (reference[1], reference[0]))

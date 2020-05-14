@@ -1,4 +1,2 @@
-from .methods import retrievePDBs
-from .methods import getChainSequence
-from .methods import blast
+from .methods import *
 from ._molecule_selector import moleculeSelector
