@@ -8,26 +8,98 @@ class clusterByDistance:
     Class to hold methods for generating clusters based on a distance matrix given as input.
 
     The method uses the cluster hierarchical package from scipy and methods within.
+
+    Attributes
+    ----------
+    distances : array
+        Array containning the set of pairwise distances to cluster with
     """
 
     def __init__(self, distance_matrix, verbose=False):
         """
         At initialization the method calls the linkage method to generate an initialization
         set of clusters.
+
+        Parameters
+        ----------
+        distance_matrix : numpy.array
+            Array containing the set of pairwise distances to cluster with
+        verbose : bool (False)
+            Whether to print clustering information
         """
 
-        self.distances = squareform(distance_matrix, checks=False)
+        # Define attributes
+        self.distances = distance_matrix
         self.verbose = verbose
+        # Define attributes holders
+        self.clusters = None
 
-        #Calculate clusters
-        self.distance_clusters = linkage(reduced_distances, method='average')
+        squareform_distances = squareform(distance_matrix, checks=False)
+
+        # Calculate clusters
+        self.linkage = linkage(squareform_distances , method='average')
 
         if verbose:
             # Ignore diagonal values for max and min printing
-            mask = np.ones(D.shape, dtype=bool)
+            mask = np.ones(self.distances.shape, dtype=bool)
             np.fill_diagonal(mask, 0)
-            max_value = D[mask].max()
-            min_value = D[mask].min()
+            max_value = self.distances[mask].max()
+            min_value = self.distances[mask].min()
 
             print('Max pairwise distance: %.3f [diagonal values ignored]' % max_value)
             print('Min pairwise distance: %.3f [diagonal values ignored]' % min_value)
+
+    def clusterByDistance(self, clustering_distance, return_centroids=False):
+        """
+        Define clusters based on a threshold distances
+
+        Parameters
+        ----------
+        clustering_distance : float
+            Threshold  value to cluster matrix distance elements
+        return_centroids : bool (False)
+            return only the centroids of each cluster
+
+        Returns
+        -------
+        clusters : dict
+            Dictionary containing the elements of each cluster or only the centroids
+            if return_centroids parameter is set to true.
+        """
+
+        self.clusters = fcluster(self.linkage, clustering_distance, criterion='distance')
+
+        if self.verbose:
+            print('There are '+str(len(set(clusters)))+' clusters at clustering distance '+str(clustering_distance))
+
+        C = { x+1:[] for x in range(len(set(clusters))) }
+        for i,c in enumerate(clusters):
+            C[c].append(i)
+
+        if return_centroids == True:
+            for c in C:
+                if len((C[c])) > 1:
+                    added_distances = []
+                    for i in C[c]:
+                        added_distances.append((i,np.sum(D[i])))
+                    C[c] = sorted(added_distances, key=lambda x:x[1])[0][0]
+                else:
+                    C[c] = C[c][0]
+
+        self.clusters = C
+
+        return C
+
+
+    def plotDendrogram(self, dpi=100):
+        """
+        Plot dendogram containing the clustering information
+
+        Parameters
+        ----------
+        dpi : int
+            Resolution of the generated plot.
+        """
+
+        plt.figure(dpi=dpi)
+        dendrogram(self.linkage)
