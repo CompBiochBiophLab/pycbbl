@@ -1,4 +1,5 @@
 from Bio import PDB
+from Bio import AlignIO
 import os
 import shutil
 import numpy as np
@@ -140,7 +141,10 @@ class blast:
 
     Methods
     -------
-
+    calculatePIDs()
+        Fast method to calculate the PID of a sequence against many.
+    _getPIDsFromBlastpOutput()
+        Method to parse the ouput of blast and retrieve the PIDs.
     """
 
     def calculatePIDs(target_sequence, comparison_sequences):
@@ -218,3 +222,47 @@ class blast:
                     values[seq] = pid
 
         return values
+
+class mafft:
+    """
+    Class to hold methods to work with mafft executable.
+
+    Methods
+    -------
+    multipleSequenceAlignment()
+        Execute a multiple sequence alignment of the input sequences
+    """
+
+    def multipleSequenceAlignment(sequences):
+        """
+        Use the mafft executable to perform a multiple sequence alignment.
+
+        Parameters
+        ----------
+        sequences : dict
+            Dictionary containing as values the strings representing the sequences
+            of the proteins to align and their identifiers as keys.
+
+        Returns
+        -------
+        alignment : Bio.AlignIO
+            Multiple sequence alignment in Biopython format.
+        """
+
+        # Write input file containing the sequences
+        with open('sequences.fasta.tmp', 'w') as iff:
+            for name in sequences:
+                iff.write('>'+name+'\n')
+                iff.write(sequences[name]+'\n')
+
+        # Calculate alignment
+        os.system('mafft --auto sequences.fasta.tmp > sequences.aligned.fasta.tmp')
+
+        # Read aligned file
+        alignment = AlignIO.read("sequences.aligned.fasta.tmp", "fasta")
+
+        # Remove temporary file
+        os.remove('sequences.fasta.tmp')
+        os.remove('sequences.aligned.fasta.tmp')
+
+        return alignment

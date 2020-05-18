@@ -4,3 +4,5 @@ blast
 matplotlib
 scipy
 pandas
+mdtraj
+mafft

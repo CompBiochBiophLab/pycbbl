@@ -1,0 +1,2 @@
+from .alignment import alignTrajectoryBySequenceAlignment
+del alignment
