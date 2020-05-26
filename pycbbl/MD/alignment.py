@@ -1,6 +1,16 @@
-# import mdtraj as md
 from pycbbl.PDB import mafft
 from Bio.PDB.Polypeptide import three_to_one
+
+import __main__
+__main__.pymol_argv = ['pymol','-qc']
+import pymol
+from pymol import cmd, stored
+import sys
+stdout = sys.stdout
+stderr = sys.stderr
+pymol.finish_launching(['pymol', '-qc'])
+sys.stdout = stdout
+sys.stderr = stderr
 
 def alignTrajectoryBySequenceAlignment(trajectory, reference, reference_frame=0,
                                        chain_indexes=None, trajectory_chain_indexes=None,
@@ -160,11 +170,11 @@ def getCommonPositions(sequence1, sequence2, mode='exact'):
     # Iterate thorugh the aligned positions
     for i in range(len(sequence1)):
         # Compare sequences according to selected mode
-        if mode == 'exact':
-            if sequence1[i] == sequence2[i]:
-                positions.append((s1p, s2p))
-        elif mode == 'aligned':
-            if sequence1[i] != '-' and sequence2[i] != '-':
+        if sequence1[i] != '-' and sequence2[i] != '-':
+            if mode == 'exact':
+                if sequence1[i] == sequence2[i]:
+                    positions.append((s1p, s2p))
+            elif mode == 'aligned':
                 positions.append((s1p, s2p))
         # Add to position counters
         if sequence1[i] != '-':
@@ -174,7 +184,7 @@ def getCommonPositions(sequence1, sequence2, mode='exact'):
 
     return positions
 
-def getTopologySequence(topology, chain_index):
+def getTopologySequence(topology, chain_index, non_protein='X'):
     """
     Get the sequence of a specfic chain in a topology object.
 
@@ -193,7 +203,10 @@ def getTopologySequence(topology, chain_index):
 
     sequence = ''
     for r in topology.chain(chain_index).residues:
-        sequence += three_to_one(r.name)
+        try:
+            sequence += three_to_one(r.name)
+        except:
+            sequence += non_protein
     return sequence
 
 def getChainIndexesToResidueIndexes(topology):

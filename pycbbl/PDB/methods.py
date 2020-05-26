@@ -68,6 +68,54 @@ def retrievePDBs(pdb_codes, pdb_directory='PDB'):
 
     return pdb_paths
 
+def getPDBpaths(pdb_folder, exclude=[], return_excluded=False):
+    """
+    Get all files with extension .pdb from a specific folder.
+
+    Parameters
+    ----------
+    pdb_folder : str
+        Path to the folder containing the PDB files
+    exclude : str or list
+        PDB file or name (wihout extension) to exclude from the analysis.
+
+    Returns
+    -------
+    pdb_paths : dict
+        Dictionary that matches the pdb codes to the path of the corresponding pdb
+        files.
+    """
+
+    # Check input variables
+    if isinstance(exclude, str):
+        exclude = [exclude]
+    if not isinstance(exclude, list):
+        raise ValueError('PDB files to exclude from the analysis must be given as a list.')
+
+    # Remove .pdb extension form excluded files
+    exclude = [f.replace('.pdb','') for f in exclude]
+
+    # Add '/' to end of pdb_folder if not given
+    if not pdb_folder.endswith('/'):
+        pdb_folder = pdb_folder+'/'
+
+    pdb_paths = {}
+    excluded = []
+
+    # Store PDB paths
+    for pdb in sorted(os.listdir(pdb_folder)):
+        if pdb.endswith('.pdb'):
+            name = pdb.replace('.pdb', '')
+            if name not in exclude:
+                pdb_paths[name] = pdb_folder+pdb
+            elif return_excluded:
+                excluded.append(name)
+
+    if return_excluded:
+        return pdb_paths, excluded
+    else:
+        return pdb_paths
+
 def getChainSequence(chain):
     """
     Get the one-letter protein sequence of a Bio.PDB.Chain object.
@@ -233,7 +281,7 @@ class mafft:
         Execute a multiple sequence alignment of the input sequences
     """
 
-    def multipleSequenceAlignment(sequences):
+    def multipleSequenceAlignment(sequences, output=None):
         """
         Use the mafft executable to perform a multiple sequence alignment.
 
@@ -242,6 +290,9 @@ class mafft:
         sequences : dict
             Dictionary containing as values the strings representing the sequences
             of the proteins to align and their identifiers as keys.
+
+        output : str
+            File name to write the fasta formatted alignment output.
 
         Returns
         -------
@@ -263,6 +314,41 @@ class mafft:
 
         # Remove temporary file
         os.remove('sequences.fasta.tmp')
+        if output != None:
+            shutil.copyfile('sequences.aligned.fasta.tmp', output)
         os.remove('sequences.aligned.fasta.tmp')
 
         return alignment
+
+    def readSequenceFastaFile(fasta_file):
+        """
+        Function to read the sequences in a fasta file into a dictionary.
+
+        Parameters
+        ----------
+        fasta_file : str
+            Path to the input fasta file
+
+        Returns
+        -------
+
+        sequences : dict
+            Dictionary containing as values the sequences and their identifiers
+            as keys.
+        """
+
+        sequences = {}
+        sequence = ''
+        with open(fasta_file) as ff:
+            for l in ff:
+                if l.startswith('>'):
+                    if sequence != '':
+                        sequences[identifier] = sequence
+                    identifier = l.strip().replace('>','')
+                    sequence = ''
+                else:
+                    sequence += l.strip()
+            if sequence != '':
+                sequences[identifier] = sequence
+                
+        return sequences
