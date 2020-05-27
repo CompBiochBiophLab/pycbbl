@@ -55,6 +55,17 @@ class uniprotSpider(scrapy.Spider):
         for x in response.css('#function > ul.noNumbering.biological_process > li > a::attr(href)').getall():
             self.uniprot_data[current]['GO - Biological process'].append(x.split(':')[-1])
 
+        # Sequence
+        sequence = ''
+        for x in response.css('pre.sequence::text').getall():
+            for p in x:
+                try:
+                    int(p)
+                except:
+                    if p != ' ':
+                        sequence += p
+        self.uniprot_data[current]['Sequence'] = sequence
+
         # PDB structures
         self.uniprot_data[current]['Structures'] = []
         for x in response.css('tr > td > a.pdb::text').getall():
