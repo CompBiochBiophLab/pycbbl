@@ -6,3 +6,5 @@ scipy
 pandas
 mdtraj
 mafft
+pyrosetta
+scrapy
