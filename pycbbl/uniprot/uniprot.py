@@ -29,7 +29,7 @@ def getInformation(uniprot_ids, output_file, overwrite=False):
 
     if os.path.exists(output_file) and not overwrite:
         print('Json file %s found.' % output_file)
-        print('Reading information from % file.')
+        print('Reading information from %s file.' % output_file)
 
     elif not os.path.exists(output_file) or overwrite:
         # create a crawler process with the specified settings
