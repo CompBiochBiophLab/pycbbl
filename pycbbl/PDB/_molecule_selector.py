@@ -123,12 +123,14 @@ class moleculeSelector:
             self.sequence_lengths[pdb] = OrderedDict()
             for chain in self.structure[pdb].get_chains():
                 # Store sequence and its length
-                self.sequence[pdb][chain.id] = pycbbl.PDB.methods.getChainSequence(chain)
-                self.sequence_lengths[pdb][chain.id] = len(self.sequence[pdb][chain.id])
-                # Store mapping function to sort and find elements in comparison matrix
-                self.sequence_matrix_map[(pdb, chain.id)] = count
-                self.matrix_sequence_map[(count)] = (pdb, chain.id)
-                count += 1
+                sequence = pycbbl.PDB.methods.getChainSequence(chain)
+                if sequence != None:
+                    self.sequence[pdb][chain.id] = pycbbl.PDB.methods.getChainSequence(chain)
+                    self.sequence_lengths[pdb][chain.id] = len(self.sequence[pdb][chain.id])
+                    # Store mapping function to sort and find elements in comparison matrix
+                    self.sequence_matrix_map[(pdb, chain.id)] = count
+                    self.matrix_sequence_map[(count)] = (pdb, chain.id)
+                    count += 1
 
     def calculatePIDMatrix(self, force_calculation=False):
         """
@@ -168,7 +170,7 @@ class moleculeSelector:
 
             self.pidMatrix = np.zeros((len(sequences), len(sequences)))
             for i in range(len(sequences)):
-                pids = blast.calculatePIDs(sequences[i], sequences)
+                pids = pycbbl.PDB.methods.blast.calculatePIDs(sequences[i], sequences)
                 self.pidMatrix[i] = pids
 
             # Check if pid_file was given
@@ -364,6 +366,8 @@ class moleculeSelector:
         selection = set()
 
         # Define reference index
+        if (reference[0], reference[1]) not in self.sequence_matrix_map:
+            raise ValueError('Reference chain not found in the set of PDB files.')
         reference_index = self.sequence_matrix_map[(reference[0], reference[1])]
 
         # Divide values into two distributions by vertical_line
@@ -427,7 +431,112 @@ class moleculeSelector:
         else:
             hist = plt.hist(reference_PIDs, bins=bins)
 
-    def selectByReferenceRMSD(self, reference, models_folder, dpi=100, vertical_line=None,
+    def selectByPIDtoSequence(self, sequence, dpi=100, vertical_line=None, select=0,
+                             new_selection=False, apply_to_selection=None):
+        """
+        This method allows to select the left (select=1) or the right side (select=2)
+        of the PID distribution relative to a given protein seequence. Without keywords
+        it generates a plot of the distribution. Adding the keyword vertical_line
+        divides the distribution into left and right side. If, additionally, the
+        keyword select is given, a new selection is created based on the side of
+        the distribution selected. This selection is stored in the attribute
+        "selection" of the "moleculeSelector" class and the previous selection is
+        overwritten. To avoid overwritting the old selection the option new_selection
+        must be set tot True, creating a new selection entry in the attribute "selection".
+        The default value of select is 0 and means that no selection will be carried
+        out. Additionally, if apply_to_selection option is used, only PDB chains
+        pertaining to that particular selection will be considered.
+
+        Parameters
+        ----------
+        sequence : str
+            Reference sequence to calculate PIDs
+        dpi : int
+            Resolution of the generated plot.
+        vertical_line : float
+            Sequence length value at which to divide the distribution.
+        select : int (0)
+            Side of the distribution to select: 0 left and 1 for right side.
+        apply_to_selection : int
+            Use a previous selection of models stored in the selection attribute
+            of this class.
+        """
+
+        if not isinstance(select, int):
+            raise ValueError('select must be an integer. Please see documentation.')
+
+        selection = set()
+
+        # Iterate sequences using the matrix_sequence mapper
+        sequences = []
+        for index in self.matrix_sequence_map:
+            (pdb, chain) = self.matrix_sequence_map[index]
+            sequences.append(self.sequence[pdb][chain])
+
+        pids = pycbbl.PDB.methods.blast.calculatePIDs(sequence, sequences)
+
+        # Divide values into two distributions by vertical_line
+        if vertical_line != None:
+            ls_reference_PIDs = []
+            rs_reference_PIDs = []
+
+            # Gather reference PIDs values
+            for i in self.matrix_sequence_map:
+                if apply_to_selection != None:
+                    if apply_to_selection in self.selection:
+                        if i not in self.selection[apply_to_selection]:
+                            continue
+                    else:
+                        raise ValueError('Selection given in "apply_to_selection" not found\
+                        Please print moleculeSelector.selection attriubute to see available selections.')
+                rpid = pids[i]
+                if rpid <= vertical_line:
+                    ls_reference_PIDs.append(rpid)
+                    if select == 1:
+                        selection.add(i)
+                else:
+                    rs_reference_PIDs.append(rpid)
+                    if select == 2:
+                        selection.add(i)
+
+            if select > 0:
+                if new_selection:
+                    self.last_selection += 1
+                self.selection[self.last_selection] = selection
+
+        else:
+            # Gather the values of sequence lengths
+            reference_PIDs = []
+            for i in self.matrix_sequence_map:
+                if apply_to_selection != None:
+                    if apply_to_selection in self.selection:
+                        if i not in self.selection[apply_to_selection]:
+                            continue
+                    else:
+                        raise ValueError('Selection given in "apply_to_selection" not found\
+                        Please print moleculeSelector.selection attriubute to see available selections.')
+                rpid = pids[i]
+                reference_PIDs.append(rpid)
+
+        # Plot sequences length distribution
+        figure = plt.figure(dpi=dpi)
+        plt.xlabel('PID to reference sequence')
+        plt.ylabel('Nº of polypeptides')
+        bins = [i/100 for i in range(0,101)]
+        plt.xlim(0, 1)
+
+        if vertical_line != None:
+            hist = plt.hist(ls_reference_PIDs, bins=bins, color='r')
+            hist = plt.hist(rs_reference_PIDs, bins=bins, color='b')
+            plt.axvline(vertical_line, ls='--', c='k')
+            if select == 1:
+                plt.axvspan(0, vertical_line, facecolor='g', alpha=0.25)
+            elif select == 2:
+                plt.axvspan(vertical_line, 1, facecolor='g', alpha=0.25)
+        else:
+            hist = plt.hist(reference_PIDs, bins=bins)
+
+    def selectByReferenceRMSD(self, reference, models_folder, bins=None, dpi=100, vertical_line=None,
         select=0, new_selection=False, apply_to_selection=None, align=False):
         """
         This method allows to select the left (select=1) or the right side (select=2)
@@ -451,6 +560,8 @@ class moleculeSelector:
             2 elements-tuple containing the pdb (str) and chain id (str) of the reference PDB chain.
         models_folder : str
             Path to the folder where the PDB chains are stored.
+        bins : list
+            List of floats to use as bins in the plot.
         dpi : int
             Resolution of the generated plot.
         vertical_line : float
@@ -486,8 +597,9 @@ class moleculeSelector:
 
         # Gather the RMSD values
         pdbs = [models[(reference[0], reference[1])]]
-        for i in range(self.pidMatrix.shape[0]):
+        for i in self.matrix_sequence_map:
             pdb, chain = self.matrix_sequence_map[i]
+            print(pdb, chain)
             if (pdb, chain) in models:
                 if apply_to_selection != None:
                     if apply_to_selection in self.selection:
@@ -497,6 +609,7 @@ class moleculeSelector:
                         raise ValueError('Selection given in "apply_to_selection" not found\
                         Please print moleculeSelector.selection attriubute to see available selections.')
                 if (pdb, chain) in models:
+                    # print(pdb, chain)
                     pdbs.append(models[(pdb, chain)])
 
         alignment = pycbbl.PDB.pymol.alignPDBs(models_folder, pdb_list=pdbs, align=align)
@@ -506,7 +619,7 @@ class moleculeSelector:
         if vertical_line != None:
             ls_reference_RMSDs = []
             rs_reference_RMSDs = []
-            for i in range(self.pidMatrix.shape[0]):
+            for i in self.matrix_sequence_map:
                 pdb, chain = self.matrix_sequence_map[i]
                 if (pdb, chain) in models:
                     if apply_to_selection != None:
@@ -536,10 +649,14 @@ class moleculeSelector:
         figure = plt.figure(dpi=dpi)
         plt.xlabel('RMSD to chain %s of pdb %s' % (reference[1], reference[0]))
         plt.ylabel('Nº of polypeptides')
-        bins = [i/2 for i in range(0, int(max(reference_RMSDs))*2+3)]
+        if bins == None:
+            bins = [i/2 for i in range(0, int(max(reference_RMSDs))*2+3)]
         plt.xlim(0, max(reference_RMSDs)+1)
 
         if vertical_line != None:
+            print(len(ls_reference_RMSDs))
+            print(len(rs_reference_RMSDs))
+
             hist = plt.hist(ls_reference_RMSDs, bins=bins, color='r')
             hist = plt.hist(rs_reference_RMSDs, bins=bins, color='b')
             plt.axvline(vertical_line, ls='--', c='k')
@@ -552,12 +669,17 @@ class moleculeSelector:
 
     def getSelectionTuples(self, selection):
         """
-        Get the tuples (pdb_code,chain) for a specific selection index.
+        Get the tuples (pdb_code, chain) for a specific selection index.
 
         Parameters
         ----------
         selection : int
             Selection index to use
+
+        Returns
+        -------
+        models : list
+            List of tuples for the specified selection
         """
 
         models = []
@@ -566,6 +688,28 @@ class moleculeSelector:
             models.append(self.matrix_sequence_map[i])
 
         return models
+
+    def getSelectionLongestChain(self, selection):
+        """
+        Get the tuple (pdb, chain) of the longest sequence in the given selection
+
+        Parameters
+        ----------
+        selection : int
+            Selection index to use
+
+        Returns
+        -------
+        longest : tuple
+            tuple (pdb, chain)
+        """
+
+        models = self.getSelectionTuples(selection)
+        lengths = [(m,self.sequence_lengths[m[0]][m[1]]) for m in models]
+        lengths = sorted(lengths, key=lambda x:x[1], reverse=True)
+        longest = lengths[0][0]
+
+        return longest
 
     def saveSelection(self, selection, output_folder):
         """
@@ -577,17 +721,37 @@ class moleculeSelector:
             Selection index to use
         output_folder : str
             Path to the folder to store models
+
+        Returns
+        -------
+        saved : list
+            List of PDBs saved.
         """
 
         if not os.path.exists(output_folder):
             os.mkdir(output_folder)
 
+        saved = []
+
         for m in self.getSelectionTuples(selection):
             for chain in self.structure[m[0]].get_chains():
                 if chain.id == m[1]:
                     structure = pycbbl.PDB.methods.chainAsStructure(chain)
-                    output_path = output_folder+'/'+m[0]+'_'+m[1]+'.pdb'
+                    name = (m[0]+'_'+m[1]).upper()
+                    name += '.pdb'
+                    # Rename files with same chain in lowercase
+                    if name in saved:
+                        try:
+                            index = int(name.split('_')[-1][0]) + 1
+                        except:
+                            index = 1
+                        name = (m[0]+'_'+m[1]+str(index)).upper()
+                        name += '.pdb'
+                    output_path = output_folder+'/'+name
                     pycbbl.PDB.methods.saveStructureToPDB(structure,  output_path)
+                    saved.append(name)
+
+        return saved
 
     def plotSequenceLengthVsAveragePID(self, dpi=100, vertical_line=None, horizontal_line=None, **kwargs):
         """

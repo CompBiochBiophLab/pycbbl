@@ -183,6 +183,27 @@ def saveStructureToPDB(structure, output):
     io.set_structure(structure)
     io.save(output)
 
+def readPDB(pdb_file):
+    """
+    Reads a PDB file with the Biopython PDB parser.
+
+    Parameters
+    ----------
+    pdb_file : str
+        path to the pdb file.
+
+    Returns
+    -------
+    structure : list or Bio.PDB.Structure
+        Structure objects
+    """
+
+    parser = PDB.PDBParser()
+    name = pdb_file.split('/')[-1].split('.pdb')[0]
+    structure = parser.get_structure(name, pdb_file)
+
+    return structure
+
 class blast:
     """
     Class to hold methods to work with blast executable.
@@ -212,6 +233,12 @@ class blast:
         pids : numpy.array
             Array containg the PIDs of the target_sequence to all the comparison_sequences.
         """
+
+        if isinstance(comparison_sequences, str):
+            comparison_sequences = [comparison_sequences]
+        elif not isinstance(comparison_sequences, list):
+            raise ValueError('Comparison sequences must be given a single string or \
+            as a list of strings.')
 
         # Write sequences into a temporary file
         with open('seq1.fasta.tmp', 'w') as sf1:
@@ -350,5 +377,5 @@ class mafft:
                     sequence += l.strip()
             if sequence != '':
                 sequences[identifier] = sequence
-                
+
         return sequences

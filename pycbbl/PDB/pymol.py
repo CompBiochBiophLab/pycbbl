@@ -38,7 +38,6 @@ def alignPDBs(folder_name, pdb_list=None, alignment_index=0, align=True, verbose
 
     Return
     ------
-
     alignment_details : dict
         Dictionary containing the RMSD values and the number of alpha carbon atoms
         used in the alignment.
@@ -50,22 +49,25 @@ def alignPDBs(folder_name, pdb_list=None, alignment_index=0, align=True, verbose
 
     #Read pdbs in folder or read given pdbs
     if pdb_list == None:
-        pdbs = []
-        for f in os.listdir('.'):
+        pdbs = {}
+        count = 0
+        for f in sorted(os.listdir()):
             if f.endswith('.pdb'):
-                pdbs.append(f)
-        if pdbs == []:
+                pdbs[count] = f
+                count += 1
+        if pdbs == {}:
             os.chdir(cwd)
             raise ValueError('There is no files with .pdb extension in the input folder. Please check that your input folder is correct.')
     else:
-        pdbs = pdb_list
+        pdbs = { i:pdb for i,pdb in enumerate(pdb_list) }
 
     # Load pdbs and align them
-    for i in range(len(pdbs)):
+    for i in sorted(pdbs):
         if i == alignment_index:
             cmd.load(pdbs[i], 'reference')
         else:
             cmd.load(pdbs[i], pdbs[i])
+
     if verbose:
         print('Aligning to model: '+pdbs[alignment_index])
     sys.stdout = open('pymolout.tmp', 'w')
@@ -82,9 +84,10 @@ def alignPDBs(folder_name, pdb_list=None, alignment_index=0, align=True, verbose
             alignment_details[f]['RMS'] = rms
             alignment_details[f]['atoms'] = atoms
     if align:
-        for i in range(len(pdbs)):
+        for i in sorted(pdbs):
             if i != alignment_index:
                 cmd.save(pdbs[i], pdbs[i])
+
     cmd.delete('all')
     os.remove('pymolout.tmp')
     os.chdir(cwd)
