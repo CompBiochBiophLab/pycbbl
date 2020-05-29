@@ -46,25 +46,63 @@ class uniprotSpider(scrapy.Spider):
         organism = response.css('#content-organism > em::text').extract_first()
         self.uniprot_data[current]['Organism'] = organism
 
-        # Go terms
-        self.uniprot_data[current]['GO - Molecular function'] = []
-        for x in response.css('#function > ul.noNumbering.molecular_function > li > a::attr(href)').getall():
-            self.uniprot_data[current]['GO - Molecular function'].append(x.split(':')[-1])
+        # Funtion information
+        self.uniprot_data[current]['Function'] = {}
 
-        self.uniprot_data[current]['GO - Biological process'] = []
+        # Sites
+        feature = []
+        for x in response.css('#sitesAnno_section > tr > td > span.context-help::text').getall():
+            #sitesAnno_section > tbody > tr:nth-child(2) > td:nth-child(1) > span
+            feature.append(x)
+        position = []
+        for x in response.css('#sitesAnno_section > tr > td > a.position::text').getall():
+            #sitesAnno_section > tbody > tr:nth-child(2) > td:nth-child(1) > span
+            position.append(x)
+        description = []
+        for x in response.css('#sitesAnno_section > tr > td.featdescription > span::text').getall():
+            #sitesAnno_section > tbody > tr:nth-child(2) > td:nth-child(1) > span
+            description.append(x)
+
+        if feature != []:
+            self.uniprot_data[current]['Function']['Sites'] = {}
+            for i in range(len(feature)):
+                self.uniprot_data[current]['Function']['Sites'][i+1] = {}
+                self.uniprot_data[current]['Function']['Sites'][i+1]['Feature key'] = feature[i]
+                self.uniprot_data[current]['Function']['Sites'][i+1]['Positions'] = position[i]
+                self.uniprot_data[current]['Function']['Sites'][i+1]['Description'] = description[i]
+
+        # Go terms
+        self.uniprot_data[current]['Function']['GO - Molecular function'] = []
+        for x in response.css('#function > ul.noNumbering.molecular_function > li > a::attr(href)').getall():
+            self.uniprot_data[current]['Function']['GO - Molecular function'].append(x.split(':')[-1])
+
+        self.uniprot_data[current]['Function']['GO - Biological process'] = []
         for x in response.css('#function > ul.noNumbering.biological_process > li > a::attr(href)').getall():
-            self.uniprot_data[current]['GO - Biological process'].append(x.split(':')[-1])
+            self.uniprot_data[current]['Function']['GO - Biological process'].append(x.split(':')[-1])
 
         # Sequence
+        sequences = []
         sequence = ''
+        seq_count = 0
+        prev_seq_count = 0
+        index = 0
         for x in response.css('pre.sequence::text').getall():
-            for p in x:
-                try:
-                    int(p)
-                except:
+            try:
+                seq_count = max([int(c) for c in x.split()])
+            except:
+                for p in x:
                     if p != ' ':
                         sequence += p
-        self.uniprot_data[current]['Sequence'] = sequence
+            if seq_count < prev_seq_count:
+                sequences.append(sequence)
+                sequence = ''
+            prev_seq_count = seq_count
+        sequences.append(sequence)
+        if len(sequences) == 1:
+            self.uniprot_data[current]['Sequence'] = sequences[0]
+        else:
+            for i,seq in enumerate(sequences):
+                self.uniprot_data[current]['Sequence'+str(i+1)] = seq
 
         # PDB structures
         self.uniprot_data[current]['Structures'] = []
