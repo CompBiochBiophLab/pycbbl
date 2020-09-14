@@ -61,7 +61,7 @@ class moleculeSelector:
         the PID values to a reference PDB chain (a specific row in the PID matrix).
     """
 
-    def __init__(self, pdb_folder, exclude=[], pid_file=None):
+    def __init__(self, pdb_folder, exclude=[], pid_file='matrix.pid', matrix_order=None):
         """
         Initialize molecule selector class. This stores the pdb paths, reads structures
         with the Bio.PDB.PDBParser and gather the sequences of each chain.
@@ -75,6 +75,9 @@ class moleculeSelector:
         save_pids : str
             Path to file to write pid values, if file exists pid values will be read
             from it.
+        matrix_order : list
+            List with the order to be used in the matrix construction. This should be\
+            a list of all the pdb files inside the pdb_folder.
         """
 
         # Define attributes
@@ -93,8 +96,6 @@ class moleculeSelector:
         self.pidMatrix = None
         self.pid_clustering = None
 
-
-
         # Check input variables
         if isinstance(exclude, str):
             exclude = [exclude]
@@ -102,6 +103,7 @@ class moleculeSelector:
             raise ValueError('Codes to exclude from the analysis must be given as a list.')
         if not self.pid_file.endswith('.npy'):
             self.pid_file = pid_file+'.npy'
+
         # Store PDB paths
         for pdb in sorted(os.listdir(pdb_folder)):
             if pdb.endswith('.pdb'):
@@ -116,9 +118,17 @@ class moleculeSelector:
         for pdb in self.pdb_paths:
             self.structure[pdb] = parser.get_structure(pdb, self.pdb_paths[pdb])
 
+        if matrix_order != None:
+            # Check matrix order:
+            for m in matrix_order:
+                if m not in self.structure:
+                    raise ValueError('%m not found in folder' % m)
+        else:
+            matrix_order = self.structure.keys()
+
         # Generate sequences for each PDB protein chain
         count = 0
-        for pdb in self.structure:
+        for pdb in matrix_order:
             self.sequence[pdb] = OrderedDict()
             self.sequence_lengths[pdb] = OrderedDict()
             for chain in self.structure[pdb].get_chains():
@@ -170,7 +180,7 @@ class moleculeSelector:
 
             self.pidMatrix = np.zeros((len(sequences), len(sequences)))
             for i in range(len(sequences)):
-                pids = pycbbl.PDB.methods.blast.calculatePIDs(sequences[i], sequences)
+                pids = pycbbl.alignment.blast.calculatePIDs(sequences[i], sequences)
                 self.pidMatrix[i] = pids
 
             # Check if pid_file was given
@@ -473,7 +483,7 @@ class moleculeSelector:
             (pdb, chain) = self.matrix_sequence_map[index]
             sequences.append(self.sequence[pdb][chain])
 
-        pids = pycbbl.PDB.methods.blast.calculatePIDs(sequence, sequences)
+        pids = pycbbl.alignment.blast.calculatePIDs(sequence, sequences)
 
         # Divide values into two distributions by vertical_line
         if vertical_line != None:
@@ -711,6 +721,29 @@ class moleculeSelector:
 
         return longest
 
+    def getSelectionSequences(self, selection):
+        """
+        Get the sequences of the chains in the given selection.
+
+        Parameters
+        ----------
+        selection : int
+            Selection index to use
+
+        Returns
+        -------
+        sequences : dictionary
+            Dictionary containing the sequences
+        """
+
+        sequences = {}
+        models = self.getSelectionTuples(selection)
+
+        for m in models:
+            sequences[m] = self.sequence[m[0]][m[1]]
+
+        return sequences
+
     def saveSelection(self, selection, output_folder):
         """
         Save separate PDB for each of the selected chains
@@ -736,7 +769,7 @@ class moleculeSelector:
         for m in self.getSelectionTuples(selection):
             for chain in self.structure[m[0]].get_chains():
                 if chain.id == m[1]:
-                    structure = pycbbl.PDB.methods.chainAsStructure(chain)
+                    structure = pycbbl.PDB.methods.chainsAsStructure(chain)
                     name = (m[0]+'_'+m[1]).upper()
                     name += '.pdb'
                     # Rename files with same chain in lowercase

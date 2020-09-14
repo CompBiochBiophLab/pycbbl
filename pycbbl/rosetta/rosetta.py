@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 
-def readScoreFile(score_file):
+def readScoreFile(score_file, skip_failed=False):
     """
     Function to read score files from Rosetta outputs as a panda DataFrame.
 
@@ -10,24 +10,46 @@ def readScoreFile(score_file):
     ----------
     score_file : string
         Path to the rosetta score file.
-
+    skip_failed : bool
+        Whether to skip incomplete score lines.
     Returns
     -------
     scores : pandas.DataFrame
     """
 
     with open(score_file) as sf:
-        lines = [x for x in sf.readlines() if x.startswith('SCORE:')]
-        score_terms = lines[0].split()
+        # Define lines in file
+        lines = sf.readlines()
+
+        # Gather score term names
+        score_terms = None
+        for c, line in enumerate(lines):
+            if line.startswith('SCORE:'):
+                score_terms = line.split()
+                score_count = c
+                break
+
+        # Remove score terms names from lines
+        lines.pop(score_count)
+
+        # Store score values in dictionary
         scores = {}
-        for line in lines[1:]:
-            for i, score in enumerate(score_terms):
-                if score not in scores:
-                    scores[score] = []
-                try:
-                    scores[score].append(float(line.split()[i]))
-                except:
-                    scores[score].append(line.split()[i])
+        for c, line in enumerate(lines):
+            if line.startswith('SCORE:'):
+                if len(line.split()) != len(score_terms):
+                    if skip_failed:
+                        print('Warning! Skipped line %s in file %s' % (c+2, score_file))
+                        continue
+                    else:
+                        raise Warning('File %s has incorrect format. Please review the\
+ number of items in line %s.' % (score_file, c+2))
+                for i, score in enumerate(score_terms):
+                    if score not in scores:
+                        scores[score] = []
+                    try:
+                        scores[score].append(float(line.split()[i]))
+                    except:
+                        scores[score].append(line.split()[i])
 
     scores.pop('SCORE:')
     for s in scores:

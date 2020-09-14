@@ -1,4 +1,4 @@
-from pycbbl.PDB import mafft
+from pycbbl.alignment import mafft
 from Bio.PDB.Polypeptide import three_to_one
 
 import __main__

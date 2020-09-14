@@ -8,3 +8,4 @@ mdtraj
 mafft
 pyrosetta
 scrapy
+ete2

@@ -1,3 +1,5 @@
+import os
+
 def parallel(jobs, cpus=6, script_name='commands'):
     """
     Generates scripts to run jobs simultaneously in N Cpus in a local computer,
@@ -38,7 +40,6 @@ def parallel(jobs, cpus=6, script_name='commands'):
 
     zf = len(str(cpus))
     count = 0
-
     for i in range(cpus):
         with open(script_name+'_'+str(i).zfill(zf),'w') as sf:
             for j in range(dJobs):
@@ -95,7 +96,6 @@ def multipleGPUSimulations(jobs, parallel=3, gpus=4, script_name='gpu_commands')
         Name of the output scripts to execute the jobs.
     """
     # Write parallel execution scheme #
-
     dJobs = int(len(jobs)/(gpus*parallel))
     rJobs = int(len(jobs)%(gpus*parallel))
     gpus_count = 0
@@ -131,4 +131,4 @@ def multipleGPUSimulations(jobs, parallel=3, gpus=4, script_name='gpu_commands')
             os.remove(script_name+'_'+str(i).zfill(zf))
 
     with open(script_name,'w') as sf:
-        sf.write('for script in run_dynamics_'+'?'*zf+'; do nohup bash $script &> ${script%.*}.nohup& done\n')
+        sf.write('for script in '+script_name+'_'+'?'*zf+'; do nohup bash $script &> ${script%.*}.nohup& done\n')

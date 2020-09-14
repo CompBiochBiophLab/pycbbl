@@ -1,6 +1,8 @@
 from Bio import PDB
 from Bio import AlignIO
+import mdtraj as md
 import os
+import re
 import shutil
 import numpy as np
 from collections import OrderedDict
@@ -144,7 +146,7 @@ def getChainSequence(chain):
     else:
         return sequence
 
-def chainAsStructure(chains):
+def chainsAsStructure(chains):
     """
     This method creates a new Structure object containing only the given chains.
 
@@ -169,7 +171,58 @@ def chainAsStructure(chains):
 
     return structure
 
-def saveStructureToPDB(structure, output):
+def renumberResidues(structure, by_chain=False):
+    """
+    Renumber residues in a structure object starting from one. Two methods are possible:
+    if by_chain is set to True the renumbering is restarted at the begining of every
+    chain.
+
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure
+        Input structure object
+    by_chain : bool
+        Whether each chain should be renumerated from one.
+
+    Returns
+    -------
+
+    structure_copy : Bio.PDB.Structure
+        Renumbered copy of the input structure
+    """
+
+    count = 0
+    structure_copy = PDB.Structure.Structure(0)
+    model = PDB.Model.Model(0)
+    auxiliar = PDB.Chain.Chain(0)
+
+    for chain in structure.get_chains():
+        new_chain = PDB.Chain.Chain(chain.id)
+        if by_chain:
+            count = 0
+        for residue in chain.get_residues():
+            count += 1
+            residue.set_parent(auxiliar)
+            residue.id = (residue.id[0], count, residue.id[2])
+            new_chain.add(residue)
+        model.add(new_chain)
+    structure_copy.add(model)
+
+    return structure_copy
+
+class notHydrogen(PDB.Select):
+    def accept_atom(self, atom):
+        """
+        Verify if atom is not Hydrogen.
+        """
+        _hydrogen = re.compile("[123 ]*H.*")
+        name = atom.get_id()
+        if _hydrogen.match(name):
+            return 0
+        else:
+            return 1
+
+def saveStructureToPDB(structure, output, remove_hydrogens=False):
     """
     Saves a structure into a PDB file
 
@@ -181,7 +234,10 @@ def saveStructureToPDB(structure, output):
 
     io = PDB.PDBIO()
     io.set_structure(structure)
-    io.save(output)
+    if remove_hydrogens:
+        io.save(output, select=notHydrogen())
+    else:
+        io.save(output)
 
 def readPDB(pdb_file):
     """
@@ -204,178 +260,28 @@ def readPDB(pdb_file):
 
     return structure
 
-class blast:
+def PDBsToTrajectory(folder):
     """
-    Class to hold methods to work with blast executable.
-
-    Methods
-    -------
-    calculatePIDs()
-        Fast method to calculate the PID of a sequence against many.
-    _getPIDsFromBlastpOutput()
-        Method to parse the ouput of blast and retrieve the PIDs.
+    Method to create a trajectory (mdtraj object) from many PDB files inside a specific
+    folder. It is mandatory that the PDB models contain the same number of atoms,
+    otherwise the method will fail.
     """
 
-    def calculatePIDs(target_sequence, comparison_sequences):
-        """
-        Calculate the percentage of identity (PID) of a target sequence against a group
-        of other sequences.
+    topology = None
+    trajectory = None
+    for f in os.listdir(folder):
+        if f.endswith('.pdb'):
+            traj = md.load(folder+'/'+f)
+            if isinstance(topology, type(None)):
+                topology = traj.topology
+            if isinstance(trajectory, type(None)):
+                trajectory = traj
+            else:
+                if trajectory.xyz.shape[1:] != traj.xyz.shape[1:]:
+                    print('PDB file: '+folder+'/'+f+' has different number of atoms \
+than the reference topology! Discarding it')
+                    continue
+                traj = md.Trajectory(traj.xyz, topology)
+                trajectory = md.join((trajectory, traj))
 
-        Parameters
-        ----------
-        target_sequence : str
-            Target sequence.
-        comparison_sequences : list of str
-            List of sequences to compare the target sequence against.
-
-        Returns
-        -------
-        pids : numpy.array
-            Array containg the PIDs of the target_sequence to all the comparison_sequences.
-        """
-
-        if isinstance(comparison_sequences, str):
-            comparison_sequences = [comparison_sequences]
-        elif not isinstance(comparison_sequences, list):
-            raise ValueError('Comparison sequences must be given a single string or \
-            as a list of strings.')
-
-        # Write sequences into a temporary file
-        with open('seq1.fasta.tmp', 'w') as sf1:
-            sf1.write('>seq1\n')
-            sf1.write(str(target_sequence))
-        with open('seq2.fasta.tmp', 'w') as sf2:
-            for i,s in enumerate(comparison_sequences):
-                sf2.write('>seq'+str(i)+'\n')
-                sf2.write(str(s)+'\n')
-        # Execute blastp calculation
-        try:
-            os.system('blastp -query seq1.fasta.tmp -subject seq2.fasta.tmp -out ssblast.out.tmp -max_target_seqs '+str(len(comparison_sequences)))
-        except:
-            raise ValueError('blastp executable failed!')
-
-        # Parse blastp output to extract PIDs
-        pids = blast._getPIDsFromBlastpOutput('ssblast.out.tmp', len(comparison_sequences))
-        pids = np.array(list(pids.values()))
-
-        # Remove temporary files
-        os.remove('seq1.fasta.tmp')
-        os.remove('ssblast.out.tmp')
-        os.remove('seq2.fasta.tmp')
-
-        return pids
-
-    def _getPIDsFromBlastpOutput(blastp_outfile, n_sequences):
-        """
-        Parse output file from a blastp comparison to extract pids
-
-        Parameters
-        ----------
-        blastp_outfile : str
-            Path to the blastp outputfile.
-        n_sequences : str
-            number of sequences in the comparison file.
-
-        Returns
-        -------
-        values : OrderedDict
-            Dictionary containing the PID values.
-        """
-
-        # Create dictionary integer entries
-        values = OrderedDict()
-        for i in range(n_sequences):
-            values[i] = 0
-
-        # Read PID from blastp output file
-        with open(blastp_outfile) as bf:
-            for l in bf:
-                if l.startswith('>'):
-                    seq = int(l.split()[1].replace('seq',''))
-                elif 'Identities' in l:
-                    pid = eval(l.split()[2])
-                    values[seq] = pid
-
-        return values
-
-class mafft:
-    """
-    Class to hold methods to work with mafft executable.
-
-    Methods
-    -------
-    multipleSequenceAlignment()
-        Execute a multiple sequence alignment of the input sequences
-    """
-
-    def multipleSequenceAlignment(sequences, output=None):
-        """
-        Use the mafft executable to perform a multiple sequence alignment.
-
-        Parameters
-        ----------
-        sequences : dict
-            Dictionary containing as values the strings representing the sequences
-            of the proteins to align and their identifiers as keys.
-
-        output : str
-            File name to write the fasta formatted alignment output.
-
-        Returns
-        -------
-        alignment : Bio.AlignIO
-            Multiple sequence alignment in Biopython format.
-        """
-
-        # Write input file containing the sequences
-        with open('sequences.fasta.tmp', 'w') as iff:
-            for name in sequences:
-                iff.write('>'+name+'\n')
-                iff.write(sequences[name]+'\n')
-
-        # Calculate alignment
-        os.system('mafft --auto sequences.fasta.tmp > sequences.aligned.fasta.tmp')
-
-        # Read aligned file
-        alignment = AlignIO.read("sequences.aligned.fasta.tmp", "fasta")
-
-        # Remove temporary file
-        os.remove('sequences.fasta.tmp')
-        if output != None:
-            shutil.copyfile('sequences.aligned.fasta.tmp', output)
-        os.remove('sequences.aligned.fasta.tmp')
-
-        return alignment
-
-    def readSequenceFastaFile(fasta_file):
-        """
-        Function to read the sequences in a fasta file into a dictionary.
-
-        Parameters
-        ----------
-        fasta_file : str
-            Path to the input fasta file
-
-        Returns
-        -------
-
-        sequences : dict
-            Dictionary containing as values the sequences and their identifiers
-            as keys.
-        """
-
-        sequences = {}
-        sequence = ''
-        with open(fasta_file) as ff:
-            for l in ff:
-                if l.startswith('>'):
-                    if sequence != '':
-                        sequences[identifier] = sequence
-                    identifier = l.strip().replace('>','')
-                    sequence = ''
-                else:
-                    sequence += l.strip()
-            if sequence != '':
-                sequences[identifier] = sequence
-
-        return sequences
+    return trajectory

@@ -1,1 +1,1 @@
-from .uniprot import getInformation
+from .uniprot import *

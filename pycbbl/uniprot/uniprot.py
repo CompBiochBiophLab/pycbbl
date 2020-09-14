@@ -1,5 +1,5 @@
 from scrapy.crawler import CrawlerProcess
-from .spider import uniprotSpider
+from .spiders import uniprotSpider, similarProteinSpider
 import os
 import json
 
@@ -27,6 +27,9 @@ def getInformation(uniprot_ids, output_file, overwrite=False):
         Dictionary containing the uniprot data.
     """
 
+    if isinstance(uniprot_ids, str):
+        uniprot_ids = [uniprot_ids]
+
     if os.path.exists(output_file) and not overwrite:
         print('Json file %s found.' % output_file)
         print('Reading information from %s file.' % output_file)
@@ -38,6 +41,40 @@ def getInformation(uniprot_ids, output_file, overwrite=False):
                    'LOG_LEVEL': 'ERROR'})
 
         process.crawl(uniprotSpider, uniprot_ids=uniprot_ids, output_file=output_file)
+        process.start()
+
+    output_file = open(output_file)
+    uniprot_data = json.load(output_file)
+    output_file.close()
+
+    return uniprot_data
+
+def getSimilarProteins(uniprot_id, output_file, percentage=50, overwrite=False):
+    """
+    Gather similar proteins to the target protein appearing in the uniprot database.
+
+    Attributes
+    ----------
+    uniprot_id : str
+        Uniprot ID of the target protein.
+    """
+    if percentage not in [50, 90]:
+        raise ValueError('Only 50 or 90 percentages are valid for uniprot lists of similar porteins.')
+
+    if os.path.exists(output_file) and not overwrite:
+        print('Json file %s found.' % output_file)
+        print('Reading information from %s file.' % output_file)
+
+    elif not os.path.exists(output_file) or overwrite:
+        # create a crawler process with the specified settings
+        process = CrawlerProcess(
+                  {'USER_AGENT': 'scrapy',
+                   'LOG_LEVEL': 'ERROR'})
+
+        process.crawl(similarProteinSpider,
+                      uniprot_id=uniprot_id,
+                      output_file=output_file, 
+                      percentage=percentage)
         process.start()
 
     output_file = open(output_file)
