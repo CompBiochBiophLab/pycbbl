@@ -1,5 +1,6 @@
 import scrapy
 import json
+import time
 
 class uniprotSpider(scrapy.Spider):
     """
@@ -62,80 +63,6 @@ class uniprotSpider(scrapy.Spider):
                              self.parseSequence,
                              meta={'current': current},
                              dont_filter=True)
-
-
-        #
-        # ## Funtion information ##
-        # self.uniprot_data[current]['Function'] = {}
-        #
-        # # Sites
-        # feature = []
-        # for x in response.css('#sitesAnno_section > tr > td > span.context-help::text').getall():
-        #     feature.append(x)
-        # position = []
-        # for x in response.css('#sitesAnno_section > tr > td > a.position::text').getall():
-        #     position.append(x)
-        # description = []
-        # for x in response.css('#sitesAnno_section > tr > td.featdescription > span::text').getall():
-        #     description.append(x)
-        #
-        # if feature != []:
-        #     self.uniprot_data[current]['Function']['Sites'] = {}
-        #     for i in range(len(feature)):
-        #         self.uniprot_data[current]['Function']['Sites'][i+1] = {}
-        #         self.uniprot_data[current]['Function']['Sites'][i+1]['Feature key'] = feature[i]
-        #         self.uniprot_data[current]['Function']['Sites'][i+1]['Positions'] = position[i]
-        #         self.uniprot_data[current]['Function']['Sites'][i+1]['Description'] = description[i]
-        #
-        # # Go terms
-        # self.uniprot_data[current]['Function']['GO - Molecular function'] = []
-        # for x in response.css('#function > ul.noNumbering.molecular_function > li > a::attr(href)').getall():
-        #     self.uniprot_data[current]['Function']['GO - Molecular function'].append(x.split(':')[-1])
-        #
-        # self.uniprot_data[current]['Function']['GO - Biological process'] = []
-        # for x in response.css('#function > ul.noNumbering.biological_process > li > a::attr(href)').getall():
-        #     self.uniprot_data[current]['Function']['GO - Biological process'].append(x.split(':')[-1])
-        #
-        # ## Family & Domains ##
-        #
-        # # Domains
-        # feature = []
-        # for x in response.css('#domainsAnno_section > tr > td > span.context-help::text').getall():
-        #     feature.append(x)
-        # position = []
-        # for x in response.css('#domainsAnno_section > tr > td > a.position::text').getall():
-        #     position.append(x.replace(u'\xa0', u' ').replace('–','-'))
-        # description = []
-        # for x in response.css('#domainsAnno_section > tr > td.featdescription > span::text').getall():
-        #     if x != ' ':
-        #         description.append(x.replace(u'\xa0', u' '))
-        #
-        # if feature != []:
-        #     self.uniprot_data[current]['Family & Domains'] = {}
-        #     if 'Domain' in feature:
-        #         self.uniprot_data[current]['Family & Domains']['Domains'] = {}
-        #     if 'Repeat' in feature:
-        #         self.uniprot_data[current]['Family & Domains']['Repeats'] = {}
-        #
-        #     dc = 0
-        #     rc = 0
-        #     for i in range(len(feature)):
-        #         if feature[i] == 'Domain':
-        #             dc += 1
-        #             self.uniprot_data[current]['Family & Domains']['Domains'][dc] = {}
-        #             self.uniprot_data[current]['Family & Domains']['Domains'][i+1]['Positions'] = position[i]
-        #             self.uniprot_data[current]['Family & Domains']['Domains'][i+1]['Description'] = description[i]
-        #         elif feature[i] == 'Repeat':
-        #             rc += 1
-        #             self.uniprot_data[current]['Family & Domains']['Repeats'][rc] = {}
-        #             self.uniprot_data[current]['Family & Domains']['Repeats'][i+1]['Positions'] = position[i]
-        #             self.uniprot_data[current]['Family & Domains']['Repeats'][i+1]['Description'] = description[i]
-        #
-
-        #
-
-
-        ### End scraping uniprot data ###
 
     def parseBasicInformation(self, response):
         current = response.meta['current']
@@ -239,4 +166,125 @@ class similarProteinSpider(scrapy.Spider):
 
     def closed(self, spider):
         json.dump(self.similar_proteins, self.output_file)
+        self.output_file.close()
+
+class pdbSpider(scrapy.Spider):
+    """
+    Scrapy spider to retrieve information for a list of PDB ids. The PDB
+    entry page is scrapped to extract information that is stored into a dictionary.
+    The spider writes this dictionary into a json file.
+
+    Attributes
+    ----------
+    pdb_ids : list
+        List of uniprot ids to retrieve information.
+    output_file : str
+        Path for the output dictionary storing the retrieved information.
+    """
+    allowed_domains = ['www.rcsb.org/']
+
+    def __init__(self, pdb_ids=None, output_file=None, **kwargs):
+        self.pdb_ids = pdb_ids
+        self.pdb_data = {}
+        self.output_file = open(output_file, 'w')
+        if self.pdb_ids == None:
+            raise ValueError('You must give a list with the PDB IDs to retrieve\
+                  information.')
+
+    def start_requests(self):
+        for pdbid in self.pdb_ids:
+            yield scrapy.Request('https://www.rcsb.org/structure/'+pdbid, self.parse, meta={'pdbid': pdbid})
+
+    def parse(self, response):
+
+        # Get input uniprot id
+        current = response.meta['pdbid']
+        self.pdb_data[current] = {}
+
+        # Save scraped url
+        self.pdb_data[current]['url'] = 'https://www.rcsb.org/structure/'+current
+
+        ### Scrape PDB data here ###
+
+        ## Basic information
+        yield scrapy.Request(self.pdb_data[current]['url'],
+                             self.parseBasicInformation,
+                             meta={'current': current},
+                             dont_filter=True)
+
+        ## Macromolecules information
+        yield scrapy.Request(self.pdb_data[current]['url'],
+                             self.parseMacromolecules,
+                             meta={'current': current},
+                             dont_filter=True)
+
+        ## Small Molecules information
+        yield scrapy.Request(self.pdb_data[current]['url'],
+                             self.parseSmallMolecules,
+                             meta={'current': current},
+                             dont_filter=True)
+
+    def parseBasicInformation(self, response):
+        current = response.meta['current']
+
+        ## Basic entry information ##
+        structureTitle = response.css('#structureTitle::text').extract_first()
+        self.pdb_data[current]['Title'] = structureTitle
+
+    def parseMacromolecules(self, response):
+        current = response.meta['current']
+
+        ## Macromolecules entry information ##
+        self.pdb_data[current]['Macromolecules'] = {}
+        molecule_names = []
+        chains = []
+        organisms = []
+        lengths = []
+
+        for i,x in enumerate(response.css('#MacromoleculeTable tr:nth-child(3) td')):
+            if (i+1)%6 == 1:
+                molecule_names.append(x.css('td::text').extract_first())
+            elif (i+1)%6 == 2:
+                chains.append(x.css('a::text').extract())
+            elif (i+1)%6 == 3:
+                lengths.append(x.css('td::text').extract_first())
+            elif (i+1)%6 == 4:
+                organisms.append(x.css('td a::text').extract_first())
+
+        for entity in zip(chains, molecule_names, lengths, organisms):
+            for chain in entity[0]:
+                self.pdb_data[current]['Macromolecules'][chain] = {}
+                self.pdb_data[current]['Macromolecules'][chain]['Molecule'] = entity[1]
+                self.pdb_data[current]['Macromolecules'][chain]['Length'] = entity[2]
+                self.pdb_data[current]['Macromolecules'][chain]['Organism'] = entity[3]
+
+    def parseSmallMolecules(self, response):
+        current = response.meta['current']
+
+        ## Small Molecules entry information ##
+        self.pdb_data[current]['Small Molecules'] = {}
+        ligand_ids = []
+        chains = []
+        names = []
+        for i,x in enumerate(response.css('#LigandsMainTable td')):
+            if (i+1)%5 == 1:
+                ligand_ids.append(x.css('a::text').extract_first())
+            elif (i+1)%5 == 2:
+                chains.append(x.css('div.ellipsisToolTip::text').extract())
+            elif (i+1)%5 == 3:
+                names.append(x.css('strong::text').extract_first())
+
+        for chain in chains:
+            for c in chain:
+                self.pdb_data[current]['Small Molecules'][c] = {}
+                self.pdb_data[current]['Small Molecules'][c]['ID'] = []
+                self.pdb_data[current]['Small Molecules'][c]['Name'] = []
+
+        for entity in zip(chains, ligand_ids, names):
+            for chain in entity[0]:
+                self.pdb_data[current]['Small Molecules'][chain]['ID'].append(entity[1])
+                self.pdb_data[current]['Small Molecules'][chain]['Name'].append(entity[2])
+
+    def closed(self, spider):
+        json.dump(self.pdb_data, self.output_file)
         self.output_file.close()

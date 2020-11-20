@@ -260,16 +260,34 @@ def readPDB(pdb_file):
 
     return structure
 
-def PDBsToTrajectory(folder):
+def PDBsToTrajectory(folder, return_filenames=False):
     """
     Method to create a trajectory (mdtraj object) from many PDB files inside a specific
     folder. It is mandatory that the PDB models contain the same number of atoms,
-    otherwise the method will fail.
+    otherwise the method will fail. The PDB names are sorted before reading.
+
+    Parameters
+    ----------
+    folder : str
+        path to the folder containing the pdb files.
+    return_filenames : bool
+        If True the function will return a 2-tuple with the trajectory as the first
+        element and a lis containing the file names as second element (no pdb extension).
+
+    Returns
+    -------
+    trajectory : mdtraj.Trajectory
+        Trajectory object containing the PDBs coordinates and topology.
+
+    if return_filenames == True
+        (trajectory, file_names): tuple
+            Tuple containing the trajectory and a list with the file names.
     """
 
     topology = None
     trajectory = None
-    for f in os.listdir(folder):
+    file_names = []
+    for f in sorted(os.listdir(folder)):
         if f.endswith('.pdb'):
             traj = md.load(folder+'/'+f)
             if isinstance(topology, type(None)):
@@ -283,5 +301,9 @@ than the reference topology! Discarding it')
                     continue
                 traj = md.Trajectory(traj.xyz, topology)
                 trajectory = md.join((trajectory, traj))
+                file_names.append(f.replace('.pdb', ''))
 
-    return trajectory
+    if return_filenames:
+        return (trajectory, file_names)
+    else:
+        return trajectory

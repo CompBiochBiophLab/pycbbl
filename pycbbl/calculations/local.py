@@ -51,6 +51,8 @@ def parallel(jobs, cpus=6, script_name='commands'):
             for j in range(rJobs):
                 sf.write(jobs[count])
                 count += 1
+            if count == len(jobs):
+                break
 
     with open(script_name,'w') as sf:
         sf.write('for script in '+script_name+'_'+'?'*zf+'; do nohup bash $script &> ${script%.*}.nohup& done\n')
@@ -125,6 +127,8 @@ def multipleGPUSimulations(jobs, parallel=3, gpus=4, script_name='gpu_commands')
         gpus_count += 1
         if gpus_count == gpus:
             gpus_count = 0
+        if count == len(jobs):
+            break
 
     if dJobs == 0:
         for i in range(rJobs, gpus*parallel):

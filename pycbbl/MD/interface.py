@@ -1,7 +1,8 @@
 import mdtraj as md
 import numpy as np
 
-def getInterfaceResidues(trajectory, frame, threshold_sasa=0.2, exclude=[]):
+def getInterfaceResidues(trajectory, frame, threshold_sasa=0.2, exclude=[],
+                         return_hsasa=False, return_phsasa=False):
     """
     Calculate the interface residues between the different chains in the model.
     The function returns a dictionary having the chain indexes of a particular interface
@@ -19,7 +20,8 @@ def getInterfaceResidues(trajectory, frame, threshold_sasa=0.2, exclude=[]):
         Percentage of hidden SASA to select residues
     exclude : list (int)
         List of chain indexes to exclude from the analysis
-
+    return_hsasa : bool
+        Return hidden sasa per-residue instead of interface residues
     Returns
     -------
     interface_residues : dict
@@ -65,8 +67,13 @@ The input trajectory should be multi chain trajectory object.')
                             for r in cx.residues:
                                 residues[(c, d)].append(r)
 
+    hidden_sasa = {}
+    phidden_sasa = {}
+
     # Calculate solvent accesible areas for complex and single chains
     for c, d in interface_residues:
+        hidden_sasa[(c,d)] = {}
+        phidden_sasa[(c,d)] = {}
         # Create trajectories containing all chain atoms and single chain atoms
         complex_atoms = chain_atoms[c] + chain_atoms[d]
         t = trajectory.atom_slice(complex_atoms)
@@ -87,13 +94,21 @@ The input trajectory should be multi chain trajectory object.')
         unbound_sasa = np.concatenate((c_sasa, d_sasa), axis=1)
 
         # Compare complex and unbound SASA and save residues with hidden sasa larger then threshold
-        hidden_sasa = unbound_sasa - complex_sasa
-        hidden_percentage = hidden_sasa / unbound_sasa
+        hsasa = unbound_sasa - complex_sasa
+        hidden_percentage = hsasa / unbound_sasa
+
         # Get residues with hidden SASA larger than threshold_sasa (default 20%)
         for i,v in enumerate(hidden_percentage[0]):
+            # Sum hidden sasa for each residue at each interface
+            hidden_sasa[(c,d)][residues[c,d][i]] = hsasa[0][i]
+            phidden_sasa[(c,d)][residues[c,d][i]] = hidden_percentage[0][i]
             if v > threshold_sasa:
                 interface_residues[(c, d)].append(residues[c,d][i])
 
+    if return_hsasa:
+        return hidden_sasa
+    elif return_phsasa:
+        return phidden_sasa
     return interface_residues
 
 def calculateSasa(trajectory, chain_indexes=[], mode='residue'):

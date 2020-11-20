@@ -3,7 +3,7 @@ from .spiders import uniprotSpider, similarProteinSpider
 import os
 import json
 
-def getInformation(uniprot_ids, output_file, overwrite=False):
+def getUniprotInformation(uniprot_ids, output_file, overwrite=False):
     """
     This function retrieves information for a list of uniprot ids. The uniprot
     entry page is scrapped to extract information that is later stored into a dictionary.
@@ -73,7 +73,7 @@ def getSimilarProteins(uniprot_id, output_file, percentage=50, overwrite=False):
 
         process.crawl(similarProteinSpider,
                       uniprot_id=uniprot_id,
-                      output_file=output_file, 
+                      output_file=output_file,
                       percentage=percentage)
         process.start()
 
