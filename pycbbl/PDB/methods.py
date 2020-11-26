@@ -290,6 +290,7 @@ def PDBsToTrajectory(folder, return_filenames=False):
     for f in sorted(os.listdir(folder)):
         if f.endswith('.pdb'):
             traj = md.load(folder+'/'+f)
+            file_names.append(f.replace('.pdb', ''))
             if isinstance(topology, type(None)):
                 topology = traj.topology
             if isinstance(trajectory, type(None)):
@@ -301,7 +302,7 @@ than the reference topology! Discarding it')
                     continue
                 traj = md.Trajectory(traj.xyz, topology)
                 trajectory = md.join((trajectory, traj))
-                file_names.append(f.replace('.pdb', ''))
+
 
     if return_filenames:
         return (trajectory, file_names)
