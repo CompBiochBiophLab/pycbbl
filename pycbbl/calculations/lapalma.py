@@ -24,6 +24,10 @@ def jobArrays(jobs, script_name=None, job_name=None, cpus=1,
         if not isinstance(conda_env, str):
             raise ValueError('The conda environment must be given as a string')
 
+    if debug:
+        hours=0
+        minutes=15
+
     #Write jobs as array
     with open(script_name,'w') as sf:
         sf.write('#!/bin/bash\n')
