@@ -41,22 +41,16 @@ class uniprotSpider(scrapy.Spider):
         ### Scrape uniprot data here ###
 
         ## Basic information
-        yield scrapy.Request(self.uniprot_data[current]['url'],
-                             self.parseBasicInformation,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseBasicInformation(response, current)
 
         ## Names & Taxonomy
-        yield scrapy.Request(self.uniprot_data[current]['url'],
-                             self.parseNamesAndTaxonomy,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseNamesAndTaxonomy(response, current)
 
         ## Structure ##
-        yield scrapy.Request(self.uniprot_data[current]['url'],
-                             self.parseStructure,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseStructure(response, current)
+
+        ## GO terms ##
+        self.parseGO(response, current)
 
         ## Sequence ##
         yield scrapy.Request(self.uniprot_data[current]['url']+'.fasta',
@@ -64,8 +58,9 @@ class uniprotSpider(scrapy.Spider):
                              meta={'current': current},
                              dont_filter=True)
 
-    def parseBasicInformation(self, response):
-        current = response.meta['current']
+        ### Finish scraping uniprot data here ###
+
+    def parseBasicInformation(self, response, current):
 
         ## Basic entry information ##
         protein = response.css('#content-protein > h1::text').extract_first()
@@ -77,8 +72,8 @@ class uniprotSpider(scrapy.Spider):
         organism = response.css('#content-organism > em::text').extract_first()
         self.uniprot_data[current]['Organism'] = organism
 
-    def parseNamesAndTaxonomy(self, response):
-        current = response.meta['current']
+    def parseNamesAndTaxonomy(self, response, current):
+
         self.uniprot_data[current]['Taxonomy'] = []
         #'div#names_and_taxonomy > table > tbody > tr > td'
         for x in response.css('div#names_and_taxonomy > table > tr > td > *'):
@@ -94,13 +89,23 @@ class uniprotSpider(scrapy.Spider):
                     if not self._isInteger(tax):
                         self.uniprot_data[current]['Taxonomy'].append(tax)
 
-    def parseStructure(self, response):
-        current = response.meta['current']
+    def parseStructure(self, response, current):
         sequence = ''
         # PDB structures
         self.uniprot_data[current]['Structures'] = []
         for x in response.css('tr > td > a.pdb::text').getall():
             self.uniprot_data[current]['Structures'].append(x)
+
+    def parseGO(self, response, current):
+        self.uniprot_data[current]['GO'] = {}
+
+        self.uniprot_data[current]['GO']['Molecular Function'] = []
+        for x in response.css('#function .molecular_function > li > a::attr(href)').getall():
+            self.uniprot_data[current]['GO']['Molecular Function'].append(x.split('GO:')[-1])
+
+        self.uniprot_data[current]['GO']['Biological Process'] = []
+        for x in response.css('#function .biological_process > li > a::attr(href)').getall():
+            self.uniprot_data[current]['GO']['Biological Process'].append(x.split('GO:')[-1])
 
     def parseSequence(self, response):
         current = response.meta['current']
@@ -110,6 +115,9 @@ class uniprotSpider(scrapy.Spider):
                 if not line.startswith('>'):
                     sequence += line
         self.uniprot_data[current]['Sequence'] = sequence
+
+
+
 
     def _isInteger(self, s):
         try:
@@ -207,33 +215,29 @@ class pdbSpider(scrapy.Spider):
         ### Scrape PDB data here ###
 
         ## Basic information
-        yield scrapy.Request(self.pdb_data[current]['url'],
-                             self.parseBasicInformation,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseBasicInformation(response, current)
 
         ## Macromolecules information
-        yield scrapy.Request(self.pdb_data[current]['url'],
-                             self.parseMacromolecules,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseMacromolecules(response, current)
 
         ## Small Molecules information
-        yield scrapy.Request(self.pdb_data[current]['url'],
-                             self.parseSmallMolecules,
-                             meta={'current': current},
-                             dont_filter=True)
+        self.parseSmallMolecules(response, current)
 
-    def parseBasicInformation(self, response):
-        current = response.meta['current']
-
+    def parseBasicInformation(self, response, current):
         ## Basic entry information ##
         structureTitle = response.css('#structureTitle::text').extract_first()
         self.pdb_data[current]['Title'] = structureTitle
 
-    def parseMacromolecules(self, response):
-        current = response.meta['current']
+        # Experimental data
+        # for x in css.response('#exp_header_0_snapshot li').getall():
+            # print(x)
 
+        resolution = response.css('#exp_header_0_diffraction_resolution::text').extract_first()
+        if resolution != None:
+            resolution = float(resolution.replace('Å',''))
+        self.pdb_data[current]['Resolution'] = resolution
+
+    def parseMacromolecules(self, response, current):
         ## Macromolecules entry information ##
         self.pdb_data[current]['Macromolecules'] = {}
         molecule_names = []
@@ -265,9 +269,7 @@ class pdbSpider(scrapy.Spider):
                 self.pdb_data[current]['Macromolecules'][chain]['Organism'] = entity[3]
                 self.pdb_data[current]['Macromolecules'][chain]['Uniprot'] = entity[4]
 
-    def parseSmallMolecules(self, response):
-        current = response.meta['current']
-
+    def parseSmallMolecules(self, response, current):
         ## Small Molecules entry information ##
         self.pdb_data[current]['Small Molecules'] = {}
         ligand_ids = []
