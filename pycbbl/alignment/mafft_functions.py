@@ -1,6 +1,7 @@
 import os
 from Bio import AlignIO
 import shutil
+from .methods import *
 
 class mafft:
     """
@@ -33,10 +34,7 @@ class mafft:
         """
 
         # Write input file containing the sequences
-        with open('sequences.fasta.tmp', 'w') as iff:
-            for name in sequences:
-                iff.write('>'+name+'\n')
-                iff.write(sequences[name]+'\n')
+        writeFastaFile(sequences, 'sequences.fasta.tmp')
 
         # Calculate alignment
         command = 'mafft --auto'

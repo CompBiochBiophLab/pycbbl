@@ -20,3 +20,23 @@ def readFastaFile(fasta_file):
         sequences[record.id] = str(record.seq)
 
     return sequences
+
+def writeFastaFile(sequences, output_file):
+    """
+    Write sequences to a fasta file.
+
+    Parameters
+    ----------
+    sequences : dict
+        Dictionary containing as values the strings representing the sequences
+        of the proteins to align and their identifiers as keys.
+
+    output_file : str
+        Path to the output fasta file
+    """
+
+    # Write fasta file containing the sequences
+    with open(output_file, 'w') as of:
+        for name in sequences:
+            of.write('>'+name+'\n')
+            of.write(sequences[name]+'\n')
