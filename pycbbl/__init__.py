@@ -3,7 +3,7 @@ from . import alignment
 from . import clustering
 from . import PDB
 from . import MD
-from . import uniprot
+from . import databases
 from . import calculations
 from . import WCN
 from . import SSN
