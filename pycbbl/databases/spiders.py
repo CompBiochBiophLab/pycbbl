@@ -163,7 +163,7 @@ class similarProteinSpider(scrapy.Spider):
             if str(self.percentage) in x:
                 url = 'https://www.uniprot.org'+x+'.list'
         if url != '':
-            yield scrapy.Request(url, self.parse_ids, dont_filter=True)
+            self.parse_ids(response)
         else:
             print('Similar protein link not found for code '+self.uniprot_id)
 
