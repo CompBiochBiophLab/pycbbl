@@ -244,7 +244,7 @@ class moleculeSelector:
         a new selection is created based on the side of the distribution selected.
         This selection is stored in the attribute "selection" of the "moleculeSelector"
         class and the previous selection is overwritten. To avoid overwritting the
-        old selection the option new_selection must be set tot True, creating a
+        old selection the option new_selection must be set to True, creating a
         new selection entry in the attribute "selection". The default value of select
         is 0 and means that no selection will be carried out. Additionally, if apply_to_selection
         option is used, only PDB chains pertaining to that particular selection
@@ -676,6 +676,39 @@ class moleculeSelector:
                 plt.axvspan(vertical_line, 1, facecolor='g', alpha=0.25)
         else:
             hist = plt.hist(reference_RMSDs, bins=bins)
+
+    def selectByList(self, selections, new_selection=False):
+        """
+        Create a selection based on a list of tuples containing the PDB ID and the
+        chain id.
+
+        Parameters
+        ----------
+        selections : list
+            List of 2 elements-tuples containing the pdb (str) and chain id (str)
+            of the selected PDB chains.
+        new_selection : bool
+            Create a new selection?
+        """
+        # Check selections input
+        if not isinstance(selections, list):
+            raise ValueError('selections must be a list of tuples containing the pdbs and chain id codes.')
+
+        #Check that all pdb and chain ids are in the selector
+        for (pdb,chain) in selections:
+            if (pdb,chain) not in list(self.sequence_matrix_map.keys()):
+                raise ValueError('PDB: %s with chain ID: %s not found in the selector.' % (pdb,chain))
+
+        # Add PDBs in selections to a new selection
+        selection = set()
+        for i in self.matrix_sequence_map:
+            pdb, chain = self.matrix_sequence_map[i]
+            if (pdb,chain) in selections:
+                selection.add(i)
+
+        if new_selection:
+            self.last_selection += 1
+        self.selection[self.last_selection] = selection
 
     def getSelectionTuples(self, selection):
         """
