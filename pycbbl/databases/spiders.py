@@ -240,7 +240,9 @@ class pdbSpider(scrapy.Spider):
         chains = []
         organisms = []
         lengths = []
+        uniprot_ids = []
 
+        # Scrape macromolecules table
         for i,x in enumerate(response.css('#MacromoleculeTable tr:nth-child(3) td')):
             if (i+1)%6 == 1:
                 molecule_names.append(x.css('td::text').extract_first())
@@ -251,12 +253,17 @@ class pdbSpider(scrapy.Spider):
             elif (i+1)%6 == 4:
                 organisms.append(x.css('td a::text').extract_first())
 
-        for entity in zip(chains, molecule_names, lengths, organisms):
+        for x in response.css('.text-left .querySearchLink::text').extract():
+            uniprot_ids.append(x)
+
+        # Store data in dictionary
+        for entity in zip(chains, molecule_names, lengths, organisms, uniprot_ids):
             for chain in entity[0]:
                 self.pdb_data[current]['Macromolecules'][chain] = {}
                 self.pdb_data[current]['Macromolecules'][chain]['Molecule'] = entity[1]
                 self.pdb_data[current]['Macromolecules'][chain]['Length'] = entity[2]
                 self.pdb_data[current]['Macromolecules'][chain]['Organism'] = entity[3]
+                self.pdb_data[current]['Macromolecules'][chain]['Uniprot'] = entity[4]
 
     def parseSmallMolecules(self, response):
         current = response.meta['current']
