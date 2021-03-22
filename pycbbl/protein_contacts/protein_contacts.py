@@ -216,6 +216,16 @@ class smog2:
                         of.write(l)
 
     def renameTerminalResidues(pdb):
+
+        # parser = PDB.PDBParser()
+        # structure = parser.get_structure(pdb.replace('.pdb',''), pdb)
+        # residues = [r for r in structure.get_residues() if r.id[0] == ' ']
+        # for i,r in enumerate(residues):
+        #     if i == 0:
+        #         print(r)
+        #     elif i == len(residues) - 1:
+        #         print(r)
+
         lines = []
         with open(pdb) as sf:
             for l in sf:
@@ -226,4 +236,3 @@ class smog2:
         with open(pdb, 'w') as sf:
             for l in lines:
                 sf.write(l)
-

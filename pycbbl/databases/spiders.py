@@ -43,6 +43,9 @@ class uniprotSpider(scrapy.Spider):
         ## Basic information
         self.parseBasicInformation(response, current)
 
+        ## Function
+        self.parseFunction(response, current)
+
         ## Names & Taxonomy
         self.parseNamesAndTaxonomy(response, current)
 
@@ -59,6 +62,24 @@ class uniprotSpider(scrapy.Spider):
                              dont_filter=True)
 
         ### Finish scraping uniprot data here ###
+
+    def parseFunction(self, response, current):
+        self.uniprot_data[current]['Function'] = {}
+
+        function = response.css('div#function')
+
+        # Catalysis
+
+        kcat = function.xpath('//span[contains(@title, "Michaelis")]/../../../span/text()').extract()
+        Kms = []
+        for Km in function.xpath('//span[contains(@title, "Michaelis")]/../span[last()]/text()').extract():
+            Kms.append(Km)
+
+        if Kms != []:
+            self.uniprot_data[current]['Function']['Catalysis'] = {}
+            self.uniprot_data[current]['Function']['Catalysis']['Km'] = Kms
+        if kcat != []:
+            self.uniprot_data[current]['Function']['Catalysis']['Kcat'] = kcat[0]
 
     def parseBasicInformation(self, response, current):
 
@@ -116,9 +137,6 @@ class uniprotSpider(scrapy.Spider):
                     sequence += line
         self.uniprot_data[current]['Sequence'] = sequence
 
-
-
-
     def _isInteger(self, s):
         try:
             int(s)
@@ -143,18 +161,22 @@ class similarProteinSpider(scrapy.Spider):
     """
     allowed_domains = ['www.uniprot.org/']
 
-    def __init__(self, uniprot_id=None, output_file=None, percentage=50, **kwargs):
+    def __init__(self, uniprot_ids=None, output_file=None, percentage=50, **kwargs):
 
-        self.uniprot_id = uniprot_id
+        if isinstance(uniprot_ids, str):
+            self.uniprot_ids = [uniprot_ids]
+        elif isinstance(uniprot_ids, list):
+            self.uniprot_ids = uniprot_ids
         self.percentage = str(percentage)
-        self.similar_proteins = []
+        self.similar_proteins = {}
         self.output_file = open(output_file, 'w')
-        if self.uniprot_id == None:
-            raise ValueError('You must give a uniprot ID to retrieve the list of\
+        if self.uniprot_ids == None:
+            raise ValueError('You must give a list of uniprot IDs to retrieve the list of\
             similar proteins.')
 
     def start_requests(self):
-        yield scrapy.Request('https://www.uniprot.org/uniprot/'+self.uniprot_id, self.get_links)
+        for upid in self.uniprot_ids:
+            yield scrapy.Request('https://www.uniprot.org/uniprot/'+upid, self.get_links, meta={'upid': upid})
 
     def get_links(self, response):
         #table-fifty > table > tbody > tr:nth-child(6) > td > small > a
@@ -163,14 +185,37 @@ class similarProteinSpider(scrapy.Spider):
             if str(self.percentage) in x:
                 url = 'https://www.uniprot.org'+x+'.list'
         if url != '':
-            self.parse_ids(response)
+            yield scrapy.Request(url, self.parse_ids, meta={'upid': response.meta['upid']}, dont_filter=True)
         else:
             print('Similar protein link not found for code '+self.uniprot_id)
 
     def parse_ids(self, response):
-        for list in response.css('p::text').getall():
+        current = response.meta['upid']
+        self.similar_proteins[current] = {}
+        self.similar_proteins[current]['codes'] = []
+        self.similar_proteins[current]['sequences'] = {}
+
+        for list in response.css('p::text').extract():
             for x in list.split():
-                self.similar_proteins.append(x)
+                self.similar_proteins[current]['codes'].append(x)
+
+        # Retrieve sequences of similar proteins
+        for s in self.similar_proteins[current]['codes']:
+            url = 'https://www.uniprot.org/uniprot/'+s+'.fasta'
+            yield scrapy.Request(url, self.getSequences,
+                                 meta={'current': current,
+                                       'upid': s},
+                                       dont_filter=True)
+
+    def getSequences(self, response):
+        current = response.meta['current']
+        upid = response.meta['upid']
+        sequence = ''
+        for x in response.css('p::text').getall():
+            for line in x.split('\n'):
+                if not line.startswith('>'):
+                    sequence += line
+        self.similar_proteins[current]['sequences'][upid] = sequence
 
     def closed(self, spider):
         json.dump(self.similar_proteins, self.output_file)
@@ -248,17 +293,28 @@ class pdbSpider(scrapy.Spider):
 
         # Scrape macromolecules table
         for i,x in enumerate(response.css('#MacromoleculeTable tr:nth-child(3) td')):
-            if (i+1)%6 == 1:
-                molecule_names.append(x.css('td::text').extract_first())
-            elif (i+1)%6 == 2:
-                chains.append(x.css('a::text').extract())
-            elif (i+1)%6 == 3:
-                lengths.append(x.css('td::text').extract_first())
-            elif (i+1)%6 == 4:
-                organisms.append(x.css('td a::text').extract_first())
+            index = (i+1)%6
+            if index== 1:
+                molecule_name = x.css('td::text').extract_first()
+                molecule_names.append(molecule_name)
+            elif index == 2:
+                chain_ids = x.css('a::text').extract()
+                chains.append(chain_ids)
+            elif index == 3:
+                length = x.css('td::text').extract_first()
+                lengths.append(length)
+            elif index == 4:
+                organism = x.css('td a::text').extract_first()
+                organisms.append(organism)
 
-        for x in response.css('.text-left .querySearchLink::text').extract():
-            uniprot_ids.append(x)
+        for i,x in enumerate(response.css('table')):
+            id_data = x.css('::attr(id)').extract_first()
+            if id_data != None and 'table_macromolecule-protein-entityId' in id_data:
+                upid = x.css('.text-left .querySearchLink::text').extract()
+                if upid == []:
+                    uniprot_ids.append(None)
+                else:
+                    uniprot_ids.append(upid[0])
 
         # Store data in dictionary
         for entity in zip(chains, molecule_names, lengths, organisms, uniprot_ids):

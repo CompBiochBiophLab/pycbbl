@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from collections import OrderedDict
+import subprocess
 
 class blast:
     """
@@ -63,6 +64,87 @@ class blast:
 
         return pids
 
+    def blastDatabase(target_sequence, path_to_database_fasta, max_target_seqs=500):
+        """
+        Blast a specific sequence against a fasta database. The database fasta file
+        must be supplied.
+        """
+        max_target_seqs = str(max_target_seqs)
+
+        # Write target sequence into a temporary file
+        with open('seq1.fasta.tmp', 'w') as sf1:
+            sf1.write('>seq1\n')
+            sf1.write(str(target_sequence))
+
+        # Execute blastp calculation
+        # Run blastp
+        command = 'blastp -query seq1.fasta.tmp -subject '+path_to_database_fasta+' -out dbblast.out.tmp -max_target_seqs '+max_target_seqs
+        try:
+            output = subprocess.check_output(command,stderr=subprocess.STDOUT,
+                                             shell=True, universal_newlines=True)
+        except subprocess.CalledProcessError as exc:
+            print(exc.output, exc.returncode)
+            raise Exception("Problem with blastp execution.")
+
+        blast_results = blast._parseBlastpOutput('dbblast.out.tmp')
+
+        # Remove temporary files
+        os.remove('seq1.fasta.tmp')
+        # os.remove('dbblast.out.tmp')
+
+        return blast_results
+
+    def _parseBlastpOutput(blastp_outfile):
+        """
+        Reads information from blast output file.
+        Parameters
+        ----------
+        blastp_outfile : str
+            Path to the blastp outputfile.
+        """
+        sequences = []
+        # Read blast file and extract sequences full ids
+        with open(blastp_outfile) as bo:
+            cond = False
+            for l in bo:
+                if l.startswith('>'):
+                    cond = True
+                    full_name = l[2:][:-1]
+                elif cond:
+                    if l.startswith('Length='):
+                        sequences.append(full_name)
+                        cond = False
+                    else:
+                        full_name += l[:-1]
+
+        # Read blast file again to extract e-values matched to partial sequence names
+        blast_results = {}
+        with open(blastp_outfile) as bo:
+            cond = False
+            for l in bo:
+                if 'Sequences producing significant alignments:' in l:
+                    cond = True
+                elif l.startswith('>'):
+                    cond = False
+                elif cond and l.split() != []:
+                    e_value = float(l.split()[-1])
+                    name = l[:-25]
+                    blast_results[name] = {}
+                    blast_results[name]['e-value'] = e_value
+
+        # Match partial sequence names with full sequence names
+        full_names = {}
+        for k1 in blast_results:
+            for k2 in sequences:
+                if k1 in k2:
+                    full_names[k1] = k2
+
+        # Replace dict entries with full names
+        for k in full_names:
+            blast_results[full_names[k]] = blast_results.pop(k)
+
+        return blast_results
+
     def _getPIDsFromBlastpOutput(blastp_outfile, n_sequences):
         """
         Parse output file from a blastp comparison to extract pids
@@ -95,29 +177,3 @@ class blast:
                     values[seq] = pid
 
         return values
-
-    def blastPDB(target_sequence, path_to_pdb_fasta, max_target_seqs=500):
-        """
-        Blast a specific sequence against the PDB database. An updated file of the
-        PDB sequences in fasta format must be supplied.
-        """
-        max_target_seqs = str(max_target_seqs)
-
-        # Write target sequence into a temporary file
-        with open('seq1.fasta.tmp', 'w') as sf1:
-            sf1.write('>seq1\n')
-            sf1.write(str(target_sequence))
-
-        # Execute blastp calculation
-        try:
-            os.system('blastp -query seq1.fasta.tmp -subject '+path_to_pdb_fasta+' -out pdbblast.out.tmp -max_target_seqs '+max_target_seqs)
-        except:
-            raise ValueError('blastp executable failed!')
-
-        with open('pdbblast.out.tmp') as bo:
-            for l in bo:
-                print(l)
-
-        # Remove temporary files
-        os.remove('seq1.fasta.tmp')
-        os.remove('pdbblast.out.tmp')

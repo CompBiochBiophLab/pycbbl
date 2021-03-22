@@ -4,10 +4,11 @@ import pandas as pd
 import numpy as np
 from pycbbl.PDB import PDBsToTrajectory
 
-def readScoreFile(score_file, skip_failed=False):
+def readScoreFile(score_file, skip_failed=False, remove_duplicates=True):
     """
     Function to read score files from Rosetta outputs as a panda DataFrame. The
-    structure tags are the indexes of the dataframe.
+    structure tags are the indexes of the dataframe. It can also accept a silent file
+    to extract the scores inside it (This takes a bit longer than when using a scorefile).
 
     Parameters
     ----------
@@ -15,6 +16,8 @@ def readScoreFile(score_file, skip_failed=False):
         Path to the rosetta score file.
     skip_failed : bool
         Whether to skip incomplete score lines.
+    remove_duplicates : bool
+        Remove duplicate score lines?
     Returns
     -------
     scores : pandas.DataFrame
@@ -34,7 +37,7 @@ def readScoreFile(score_file, skip_failed=False):
                 break
 
         if score_count == None:
-            raise InputError('Score file is empty!')
+            raise ValueError('Score file is empty!')
         # Remove score terms names from lines
         lines.pop(score_count)
 
@@ -63,6 +66,58 @@ def readScoreFile(score_file, skip_failed=False):
 
     scores = pd.DataFrame(scores)
     scores = scores.set_index('description')
+    scores = scores.sort_index()
+
+    if remove_duplicates:
+        scores.drop_duplicates(inplace=True)
+
+    return scores
+
+def getPDBsScores(pdb_list):
+    """
+    Get the PDB with the best score from a set of PDBs with rosetta score output.
+
+    Parameters
+    ----------
+
+    pdb_list : list
+        List of PDB files to read scores from.
+    """
+
+    if pdb_list == []:
+        raise ValueError('The given list of PDBs is empty!')
+
+    scores = {}
+    # read pdb files
+    for pdb in pdb_list:
+        score_terms = []
+        name = pdb.split('/')[-1].replace('.pdb','')
+        with open(pdb) as pdbf:
+            cond = False
+            for l in pdbf:
+                if cond:
+                    if l.startswith('label'):
+                        score_terms = [s for s in l.split()]
+                        if scores == {}:
+                            for s in score_terms:
+                                scores[s] = []
+                if score_terms != []:
+                    if l.startswith('pose'):
+                        for z in zip(score_terms, l.split()):
+                            if z[0] == 'label':
+                                scores[z[0]].append(name)
+                            else:
+                                scores[z[0]].append(float(z[1]))
+
+                # Check for score segment
+                if l.startswith('#BEGIN_POSE_ENERGIES_TABLE'):
+                    cond = True
+
+    for s in scores:
+        scores[s] = np.array(scores[s])
+
+    scores = pd.DataFrame(scores)
+    scores = scores.set_index('label')
     scores = scores.sort_index()
 
     return scores
@@ -150,6 +205,42 @@ def silentToDCDTrajectory(silent_file, superpose=True, tmp_dir='TMP_SILENT_PDBs'
         return (trajectory, tags)
     else:
         return trajectory
+
+def PDBsToSilent(pdb_files, output_silent, overwrite=False): #silent_struct_type='binary'):
+    """
+    Convert a set of PDBs into a silent file. The PDBs are read by the rosetta scoring
+    application and merged into a silent file.
+
+    Parameters
+    ----------
+    pdb_files : list
+        Paths to each individual PDB files.
+    output_silent : str
+        Path to the output silent file.
+    overwrite : bool
+        Overwrite silet file if exists?
+    silent_struct_type :
+        Format of the silent file
+    """
+
+    with open('pdb_list.tmp', 'w') as lf:
+        for pdb in pdb_files:
+            lf.write(pdb+'\n')
+
+    if not output_silent.endswith('.out'):
+        output_silent = output_silent+'.out'
+
+    command = 'score.linuxgccrelease -l pdb_list.tmp'
+    command += ' -out:file:silent '+output_silent
+    command += ' -out:file:scorefile '+output_silent.replace('.out', '.sc')
+    # command += ' -out:file:silent_struct_type '+silent_struct_type
+    command += ' -out:no_nstruct_label'
+    if overwrite:
+        command += ' -overwrite'
+
+    os.system(command)
+
+    os.remove('pdb_list.tmp')
 
 class scoring:
 

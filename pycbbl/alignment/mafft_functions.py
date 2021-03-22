@@ -116,7 +116,7 @@ class mafft:
 
         # Remove temporary file
         os.remove('sequences.fasta.tmp')
-        # os.remove('sequences.msa.fasta.tmp')
+        os.remove('sequences.msa.fasta.tmp')
         if output != None:
             shutil.copyfile('sequences.aligned.fasta.tmp', output)
         os.remove('sequences.aligned.fasta.tmp')

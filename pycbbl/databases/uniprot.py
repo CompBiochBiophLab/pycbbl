@@ -49,7 +49,7 @@ def getUniprotInformation(uniprot_ids, output_file, overwrite=False):
 
     return uniprot_data
 
-def getSimilarProteins(uniprot_id, output_file, percentage=50, overwrite=False):
+def getSimilarProteins(uniprot_ids, output_file, percentage=50, overwrite=False):
     """
     Gather similar proteins to the target protein appearing in the uniprot database.
 
@@ -72,7 +72,7 @@ def getSimilarProteins(uniprot_id, output_file, percentage=50, overwrite=False):
                    'LOG_LEVEL': 'ERROR'})
 
         process.crawl(similarProteinSpider,
-                      uniprot_id=uniprot_id,
+                      uniprot_ids=uniprot_ids,
                       output_file=output_file,
                       percentage=percentage)
         process.start()

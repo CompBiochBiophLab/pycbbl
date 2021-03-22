@@ -1,5 +1,5 @@
-def jobArrays(jobs, script_name=None, job_name=None, cpus=1,
-              threads=None, output=None, mail=None, time=72, modules=None,
+def jobArrays(jobs, script_name=None, job_name=None, cpus=1, mem_per_cpu=None,
+              threads=None, output=None, mail=None, time=24, modules=None,
               conda_env=None, unload_modules=None, debug=False):
 
     if job_name == None:
@@ -34,6 +34,8 @@ def jobArrays(jobs, script_name=None, job_name=None, cpus=1,
         sf.write('#SBATCH --job-name='+job_name+'\n')
         sf.write('#SBATCH --time='+str(time)+':00:00\n')
         sf.write('#SBATCH -n '+str(cpus)+'\n')
+        if mem_per_cpu != None:
+            sf.write('#SBATCH --mem-per-cpu '+str(mem_per_cpu)+'\n')
         if threads != None:
             sf.write('#SBATCH -c '+str(threads)+'\n')
         if debug:

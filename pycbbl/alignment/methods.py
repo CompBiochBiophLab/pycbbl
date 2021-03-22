@@ -40,3 +40,22 @@ def writeFastaFile(sequences, output_file):
         for name in sequences:
             of.write('>'+name+'\n')
             of.write(sequences[name]+'\n')
+
+def writeMsaToFastaFile(msa, output_file):
+    """
+    Write sequences inside an MSA to a fasta file.
+
+    Parameters
+    ----------
+    msa : Bio.AlignIO
+        Multiple sequence aligment in Biopython format.
+
+    output_file : str
+        Path to the output fasta file
+    """
+
+    # Write fasta file containing the sequences
+    with open(output_file, 'w') as of:
+        for s in msa:
+            of.write('>'+s.id+'\n')
+            of.write(str(s.seq)+'\n')

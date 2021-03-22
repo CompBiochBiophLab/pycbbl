@@ -151,7 +151,7 @@ class WCNObject:
             self.bf_aa = np.array([atom.bfactor for atom in self.all_atoms])
 
             if normalized == True:
-                self.bf_aa = normalize(self.bf_aa)
+                self.bf_aa = _normalize(self.bf_aa)
 
         return self.bf_aa
 
@@ -280,8 +280,8 @@ class WCNObject:
             self.wcn_pr[j] = np.average(self.wcn_aa[indexes])
 
         if normalized == True:
-            self.wcn_aa = normalize(self.wcn_aa)
-            self.wcn_pr = normalize(self.wcn_pr)
+            self.wcn_aa = _normalize(self.wcn_aa)
+            self.wcn_pr = _normalize(self.wcn_pr)
 
         return self.wcn_pr
 
