@@ -90,7 +90,7 @@ class blast:
 
         # Remove temporary files
         os.remove('seq1.fasta.tmp')
-        # os.remove('dbblast.out.tmp')
+        os.remove('dbblast.out.tmp')
 
         return blast_results
 

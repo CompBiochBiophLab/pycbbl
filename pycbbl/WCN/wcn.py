@@ -2,6 +2,9 @@ from Bio.PDB import *
 from collections import OrderedDict
 import numpy as np
 import re
+from ..PDB import saveStructureToPDB, getChainSequence
+from ..alignment import mafft
+from ..MD import alignment
 
 class WCNObject:
     """
@@ -83,6 +86,8 @@ class WCNObject:
         self.wcn_ca = None
         self.wcn_pr = None
         self.bf_aa = None
+        self.bf_ca = None
+        self.bf_pr = None
 
     def removeWaters(self):
         """
@@ -114,6 +119,7 @@ class WCNObject:
                 atomsToRemove.add(a)
                 residuesToRemove.add(a.get_parent())
 
+        # Update atoms
         self.all_atoms = [a for a in self.all_atoms if a not in atomsToRemove]
         self.calpha_atoms = [a for a in self.all_atoms if a not in atomsToRemove and a.name == 'CA']
         self.residues = [r for r in self.residues if r not in residuesToRemove]
@@ -133,12 +139,14 @@ class WCNObject:
 
     def getBfactors(self, normalized=True):
         """
-        Get B-factor column of values.
+        Get B-factor column of values and create all-atom, C-alpha and per-residue
+        profiles. It only returns the all atom b-factor list, however all this can
+        be accessed by the attributes: .bf_aa, .bf_ca, .bf_pr, respectively.
 
         Parameters
         ----------
         normalized : bool
-            Normalize B-factor column profile?
+            Normalize B-factor column profile (Z-score)?
 
         Returns
         -------
@@ -148,10 +156,25 @@ class WCNObject:
 
         if not isinstance(self.bf_aa, np.ndarray):
 
+            # Store all atom
             self.bf_aa = np.array([atom.bfactor for atom in self.all_atoms])
+
+            # Store alpha carbon
+            self.bf_ca = np.array([atom.bfactor for atom in self.calpha_atoms])
+
+            # Store average BF per residue
+            self.bf_pr = np.zeros(len(self.residues))
+            for j,r in enumerate(self.residues):
+                indexes = []
+                for i,a in enumerate(self.all_atoms):
+                    if a.get_parent() == r:
+                        indexes.append(i)
+                self.bf_pr[j] = np.average(self.bf_aa[indexes])
 
             if normalized == True:
                 self.bf_aa = _normalize(self.bf_aa)
+                self.bf_ca = _normalize(self.bf_ca)
+                self.bf_pr = _normalize(self.bf_pr)
 
         return self.bf_aa
 
@@ -162,7 +185,7 @@ class WCNObject:
         Parameters
         ----------
         atoms : list
-            List of atoms objects.
+            List oCUDAf atoms objects.
         CUDA : bool
             Whether to use CUDA to calculate the matrix.
 
@@ -267,7 +290,7 @@ class WCNObject:
             All atom WCN profile averaged by residue.
         """
 
-        if self.wcn_aa == None:
+        if isinstance(self.wcn_aa, type(None)):
             self.calculateAllAtom(normalized=False, CUDA=CUDA)
 
         self.wcn_pr = np.zeros(len(self.residues))
@@ -330,6 +353,166 @@ class WCNObject:
                 except:
                     continue
 
+    def dumpStructure(self, output_file, wcn_aa_as_bf=False, wcn_ca_as_bf=False,
+                      wcn_pr_as_bf=False):
+        """
+        Write a structure with b-factors or WCN in the b-factors columns. The WCN values
+        can be all atom, alpha carbon, or per-residue. In the last two cases the
+        same WCN is given to all atoms inside a residue.
+        """
+
+        # Create chains objects
+        chains = {}
+        atoms = []
+        residues = []
+
+        # Create output struture objects
+        structure = Structure.Structure(0)
+        model = Model.Model(0)
+
+        # Save atoms and residues
+        for c in self.chains:
+            chains[c.id] = Chain.Chain(c.id)
+            for r in self.residues:
+                chains[c.id].add(r)
+                residues.append(r)
+                for a in r.get_atoms():
+                    atoms.append(a)
+
+        if wcn_aa_as_bf:
+            assert len(atoms) == len(self.wcn_aa)
+            for i,wcn in enumerate(self.wcn_aa):
+                atoms[i].bfactor = wcn
+
+        elif wcn_ca_as_bf:
+            assert len(residues) == len(self.wcn_ca)
+            for i, wcn in enumerate(self.wcn_ca):
+                for a in residues[i].get_atoms():
+                    a.bfactor = wcn
+
+        elif wcn_pr_as_bf:
+            assert len(residues) == len(self.wcn_pr)
+            for i, wcn in enumerate(self.wcn_pr):
+                for a in residues[i].get_atoms():
+                    a.bfactor = wcn
+
+        else:
+            assert len(atoms) == len(self.bf_aa)
+            for i,bf in enumerate(self.bf_aa):
+                atoms[i].bfactor = bf
+
+        for c in chains:
+            model.add(chains[c])
+        structure.add(model)
+
+        saveStructureToPDB(structure, output_file)
+
+    def matchAtomsToTrajectory(self, trajectory, return_by_chains=True):
+        """
+        Matches the atoms between a trajectory and the WCNObject.structure. It assumes
+        that the order of the chains between the objects is the same. The matching is
+        based on a sequence alignemnt between the two objects, and then a matching between
+        the atom names between aligned residues (it is not recommended to match
+        hydrogens). The function returns two dictionares of indexes (traj_indexes, struture_indexes)
+        to slice the respective per chain objects into arrays of common atoms. if
+        return_by_chains is True, then only a single list is returned containing
+        all the atoms (i.e., not separated by chains).
+
+        Parameters
+        ==========
+        trajectory : md.Trajectory
+            An mdtraj object containing the trajectory to match against
+        return_by_chains : bool
+            Return the indexes separated by chains
+
+        Returns
+        =======
+        traj_indexes : dict (or list)
+            A dictionary containing the trajectory atoms' indexes for each chain common
+            to the WCN structure object. It is a list if return_by_chains is False.
+        structure_indexes : dict (or list)
+            A dictionary containing the structure atoms' indexes for each chain common
+            to the trajectory object. It is a list if return_by_chains is False.
+        """
+
+        # Get the chains for the structure and the trajectory object
+        chains = {}
+        chains['structure'] = [c for c in self.chains]
+        chains['trajectory'] = [*range(len([*trajectory.topology.chains]))]
+
+        if len(chains['structure']) != len(chains['trajectory']):
+            raise ValueError('The WCN Object and the trajectory have a different number of chains')
+
+        sequences = {}
+        traj_indexes = {}
+        structure_indexes = {}
+
+        # Iterate over all the chains in the structure and the trajectory
+        for i,c in enumerate(chains['structure']):
+
+            traj_indexes[c.id] = []
+            structure_indexes[c.id] = []
+
+            # Get the sequences for the structure and trajectory object
+            sequences[c.id] = {}
+            sequences[c.id]['trajectory'] = alignment.getTopologySequence(trajectory.topology, i)
+            sequences[c.id]['structure'] = getChainSequence(c)
+
+            # Do a sequence alignment between the two objects
+            sa = mafft.multipleSequenceAlignment(sequences[c.id])
+
+            # Match common residues between the WCN and trajectory objects
+            i1 = 0
+            i2 = 0
+            t_res_indexes = []
+            s_res_indexes = []
+            for i in range(sa.get_alignment_length()):
+                if sa[0].seq[i] != '-' and sa[1].seq[i] != '-':
+                    t_res_indexes.append(i1)
+                    s_res_indexes.append(i2)
+                if sa[0].seq[i] != '-':
+                    i1 += 1
+                if sa[1].seq[i] != '-':
+                    i2 += 1
+
+            # Get common residues indexes as numpy arrays
+            t_res_indexes = np.array(t_res_indexes)
+            s_res_indexes = np.array(s_res_indexes)
+
+            # Create list of residues in each object
+            traj_residues = [r for r in trajectory.topology.residues]
+            structure_residues = [r for r in c.get_residues()]
+
+            # Match atoms by name
+            for z in zip(t_res_indexes, s_res_indexes):
+                tr = traj_residues[z[0]]
+                sr = structure_residues[z[1]]
+                t_atoms = [a for a in tr.atoms]
+                s_atoms = [a for a in sr.get_atoms()]
+                s_atoms_names = [a.name for a in sr.get_atoms()]
+
+                for i,n in enumerate(t_atoms):
+                    try:
+                        j = s_atoms_names.index(n.name)
+                    except:
+                        j = None
+
+                    # Save only indexes of matched atoms by name
+                    if not isinstance(j, type(None)):
+                        traj_indexes[c.id].append(t_atoms[i].index)
+                        structure_indexes[c.id].append(self.all_atoms.index(s_atoms[j]))
+
+        # Convert dictionaries into lists containing all indexes
+        if not return_by_chains:
+            ti = []
+            si = []
+            for c in traj_indexes:
+                ti += traj_indexes[c]
+                si += structure_indexes[c]
+            traj_indexes = ti
+            structure_indexes = si
+
+        return traj_indexes, structure_indexes
 
 def _normalize(data):
     """
@@ -351,3 +534,25 @@ def _normalize(data):
     data = (data - average)/stdev
 
     return data
+
+
+def calculateRMSF(trajectory, c_alpha=False, normalize=True):
+
+    # Align trajectory
+    trajectory.superpose(trajectory[0])
+    # Calculate RMSF
+    rmsf = np.average(np.linalg.norm(trajectory.xyz-np.average(trajectory.xyz, axis=0), axis=2), axis=0)
+
+    if c_alpha:
+        atoms = []
+        for a in trajectory.topology.atoms:
+            if a.name == 'CA':
+                atoms.append(a.index)
+        atoms = np.array(atoms)
+        rmsf = rmsf[atoms]
+
+    #Normalize
+    if normalize:
+        rmsf = _normalize(rmsf)
+
+    return rmsf

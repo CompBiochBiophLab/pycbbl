@@ -81,6 +81,28 @@ class uniprotSpider(scrapy.Spider):
         if kcat != []:
             self.uniprot_data[current]['Function']['Catalysis']['Kcat'] = kcat[0]
 
+        # Sites
+        feature_keys = []
+        positions = []
+        descriptions = []
+
+        for i,x in enumerate(function.css('#sitesAnno_section td > :nth-child(1)::text').extract()):
+
+            if i%3 == 0:
+                feature_keys.append(x)
+            elif i%3 == 1:
+                positions.append(x)
+            elif i%3 == 2:
+                descriptions.append(x)
+
+        self.uniprot_data[current]['Function']['Sites'] = {}
+        sites = self.uniprot_data[current]['Function']['Sites']
+
+        for i,x in enumerate(positions):
+            sites[x] = {}
+            sites[x]['Feature key'] = feature_keys[i]
+            sites[x]['Description'] = descriptions[i]
+
     def parseBasicInformation(self, response, current):
 
         ## Basic entry information ##
