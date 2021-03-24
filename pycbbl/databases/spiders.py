@@ -34,8 +34,10 @@ class uniprotSpider(scrapy.Spider):
             for i in range(self.max_retry_attempts):
                 try:
                     yield scrapy.Request('https://www.uniprot.org/uniprot/'+upid, self.parse, meta={'upid': upid})
+                    # Break if request was successfull
                     break
                 except:
+                    # Wait 0.1 seconds before the next attempt
                     time.sleep(0.1)
                     continue
 
