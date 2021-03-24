@@ -21,6 +21,8 @@ class uniprotSpider(scrapy.Spider):
         self.uniprot_ids = uniprot_ids
         self.uniprot_data = {}
         self.output_file = open(output_file, 'w')
+        self.max_retry_attempts = 10
+        self.retry_attempt = 0
         if self.uniprot_ids == None:
             raise ValueError('You must give a list with the uniprot IDs to retrieve\
                   information from.')
@@ -31,37 +33,51 @@ class uniprotSpider(scrapy.Spider):
 
     def parse(self, response):
 
-        # Get input uniprot id
-        current = response.meta['upid']
-        self.uniprot_data[current] = {}
+        # If parsing fails then retry with except: scrapy.Request() (see below)
+        try:
+            # Get input uniprot id
+            current = response.meta['upid']
+            self.uniprot_data[current] = {}
 
-        # Save scraped url
-        self.uniprot_data[current]['url'] = 'https://www.uniprot.org/uniprot/'+current
+            # Save scraped url
+            self.uniprot_data[current]['url'] = 'https://www.uniprot.org/uniprot/'+current
 
-        ### Scrape uniprot data here ###
+            ### Scrape uniprot data here ###
 
-        ## Basic information
-        self.parseBasicInformation(response, current)
+            ## Basic information
+            self.parseBasicInformation(response, current)
 
-        ## Function
-        self.parseFunction(response, current)
+            ## Function
+            self.parseFunction(response, current)
 
-        ## Names & Taxonomy
-        self.parseNamesAndTaxonomy(response, current)
+            ## Names & Taxonomy
+            self.parseNamesAndTaxonomy(response, current)
 
-        ## Structure ##
-        self.parseStructure(response, current)
+            ## Structure ##
+            self.parseStructure(response, current)
 
-        ## GO terms ##
-        self.parseGO(response, current)
+            ## GO terms ##
+            self.parseGO(response, current)
 
-        ## Sequence ##
-        yield scrapy.Request(self.uniprot_data[current]['url']+'.fasta',
-                             self.parseSequence,
-                             meta={'current': current},
-                             dont_filter=True)
+            ## Sequence ##
+            yield scrapy.Request(self.uniprot_data[current]['url']+'.fasta',
+                                 self.parseSequence,
+                                 meta={'current': current},
+                                 dont_filter=True)
 
-        ### Finish scraping uniprot data here ###
+            ### Finish scraping uniprot data here ###
+
+            # restart the retries counter
+            self.retry_attempt = 0
+
+        # Retry if something goes wrong
+        except:
+            if self.retry_attempt <= self.max_retry_attempts:
+                yield Request(response.url, callback=self.parse, dont_filter=True)
+                self.retry_attempt += 1
+            else:
+                raise ValueError('Maximum number of retries (%s) exceeded!' %
+                                    self.max_retry_attempts)
 
     def parseFunction(self, response, current):
         self.uniprot_data[current]['Function'] = {}
