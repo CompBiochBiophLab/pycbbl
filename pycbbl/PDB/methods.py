@@ -222,7 +222,31 @@ class notHydrogen(PDB.Select):
         else:
             return 1
 
-def saveStructureToPDB(structure, output, remove_hydrogens=False):
+class notWater(PDB.Select):
+    def accept_residue(self, residue):
+        """
+        Verify if residue is water.
+        """
+        _restype = residue.id[0]
+        if _restype == 'W':
+            return 0
+        else:
+            return 1
+
+class onlyProtein(PDB.Select):
+
+    def accept_residue(self, residue):
+        """
+        Verify if residues are protein.
+        """
+        _restype = residue.id[0]
+        if _restype != ' ':
+            return 0
+        else:
+            return 1
+
+def saveStructureToPDB(structure, output, remove_hydrogens=False, remove_water=False,
+                        only_protein=False):
     """
     Saves a structure into a PDB file
 
@@ -234,8 +258,17 @@ def saveStructureToPDB(structure, output, remove_hydrogens=False):
 
     io = PDB.PDBIO()
     io.set_structure(structure)
+
+    selector = None
     if remove_hydrogens:
-        io.save(output, select=notHydrogen())
+        selector = notHydrogen()
+    elif remove_water:
+        selector = notWater()
+    elif only_protein:
+        selector = onlyProtein()
+
+    if selector != None:
+        io.save(output, selector)
     else:
         io.save(output)
 
