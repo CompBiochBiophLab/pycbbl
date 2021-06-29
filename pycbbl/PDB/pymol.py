@@ -10,6 +10,7 @@ sys.stdout = stdout
 sys.stderr = stderr
 
 import os
+import string
 
 def alignPDBs(folder_name, pdb_list=None, alignment_index=0, align=True, verbose=True):
     """
@@ -93,3 +94,53 @@ def alignPDBs(folder_name, pdb_list=None, alignment_index=0, align=True, verbose
     os.chdir(cwd)
 
     return alignment_details
+
+def createSymmetryMolecules(pdb_file, chain_id, distance, output_pdb, letter='Z'):
+
+    # Load input PDB
+    cmd.load(pdb_file, 'reference')
+
+    # Select chain
+    cmd.select(chain_id, 'chain '+chain_id)
+
+    # Get all chain letters in use
+    # Define additional chain letters
+    letters = set([l for l in string.ascii_uppercase])
+    model = cmd.get_model('reference')
+    used_letters = []
+    for a in model.atom:
+        used_letters.append(a.chain)
+    unused_letters = sorted(list(letters - set(used_letters)))
+
+    # Create symmetry relacted molecules inside the threshold distance
+    cmd.symexp('symmetry', 'reference', chain_id, distance)
+
+    # Get all symmetry reconstructed objects
+    symmetry_objects = []
+    for o in cmd.get_object_list('all'):
+        if 'symmetry' in o:
+            symmetry_objects.append(o)
+
+    # Rename and renumber each reconstructed object
+    for symmetry in symmetry_objects:
+
+        letter = unused_letters[-1]
+        if symmetry == None:
+            raise ValueError('No symmetry molecules were build.')
+
+        # Change symmetry related molecules chain id
+        cmd.alter(symmetry, "chain='"+letter+"'")
+
+        # Renumber symmetry related residues
+        model = cmd.get_model(symmetry)
+        for i,a in enumerate(model.atom):
+            a.resi = i+1
+
+        cmd.alter(symmetry, 'resi = next(atom_it).resi',
+                space={'atom_it': iter(model.atom), 'next': next})
+
+        cmd.group('reconstructed', 'reference '+symmetry, action='add')
+
+        unused_letters = unused_letters[:-1]
+
+    cmd.save(output_pdb, 'reconstructed')

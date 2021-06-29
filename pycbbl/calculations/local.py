@@ -42,19 +42,20 @@ def parallel(jobs, cpus=6, script_name='commands'):
     count = 0
     for i in range(cpus):
         with open(script_name+'_'+str(i).zfill(zf),'w') as sf:
+            sf.write('#!/bin/sh\n')
             for j in range(dJobs):
                 sf.write(jobs[count])
                 count += 1
 
-    for i in range(cpus):
-        with open(script_name+'_'+str(i).zfill(zf),'a') as sf:
-            for j in range(rJobs):
-                sf.write(jobs[count])
-                count += 1
+    for j in range(rJobs):
+        with open(script_name+'_'+str(j).zfill(zf),'a') as sf:
+            sf.write(jobs[count])
+            count += 1
             if count == len(jobs):
                 break
 
     with open(script_name,'w') as sf:
+        sf.write('#!/bin/sh\n')
         sf.write('for script in '+script_name+'_'+'?'*zf+'; do nohup bash $script &> ${script%.*}.nohup& done\n')
 
 def multipleGPUSimulations(jobs, parallel=3, gpus=4, script_name='gpu_commands'):

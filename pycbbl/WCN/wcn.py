@@ -1,10 +1,14 @@
-from Bio.PDB import *
-from collections import OrderedDict
 import numpy as np
 import re
+import os
+import shutil
+from Bio.PDB import *
+from collections import OrderedDict
+from zipfile import ZipFile
 from ..PDB import saveStructureToPDB, getChainSequence
 from ..alignment import mafft
 from ..MD import alignment
+from scipy.spatial import distance_matrix
 
 class WCNObject:
     """
@@ -25,14 +29,18 @@ class WCNObject:
         List containing all the residues in the protein structure.
     chains : list
         List containing all the chains in the protein structure.
+    chain_ids : list
+        List containing all the chain ids in the protein structure.
     bf_aa : numpy.ndarray
         B-factor profile
-    wcn_ca : numpy.ndarray
+        wcn_ca : numpy.ndarray
         Alpha carbon atoms WCN profile.
     wcn_aa : numpy.ndarray
         All atoms WCN profile.
     wcn_pr : numpy.ndarray
         All atom WCN profile averaged by residue.
+    wcn_per_chain : dict
+        All atom WCN profiles for structures represented only by selected subchains.
 
     Methods
     -------
@@ -75,6 +83,7 @@ class WCNObject:
         self.calpha_atoms = [a for a in self.structure.get_atoms() if a.name == 'CA']
         self.residues = [r for r in self.structure.get_residues()]
         self.chains = [c for c in self.structure.get_chains()]
+        self.chain_ids = [c.id for c in self.structure.get_chains()]
 
         #Check that all defined residues have a C-alpha atom
         for r in self.residues:
@@ -88,6 +97,7 @@ class WCNObject:
         self.bf_aa = None
         self.bf_ca = None
         self.bf_pr = None
+        self.wcn_per_chain = {}
 
     def removeWaters(self):
         """
@@ -178,16 +188,14 @@ class WCNObject:
 
         return self.bf_aa
 
-    def squareInverseDistanceMatrix(self, atoms, CUDA=False):
+    def squareInverseDistanceMatrix(self, atoms):
         """
         Calculate the inverse distance matrix for all the atoms in the given set.
 
         Parameters
         ----------
         atoms : list
-            List oCUDAf atoms objects.
-        CUDA : bool
-            Whether to use CUDA to calculate the matrix.
+            List of atoms objects.
 
         Returns
         -------
@@ -195,28 +203,15 @@ class WCNObject:
             Squared inverse atom (pair-wise) distances array
         """
 
-        # Cuda implementation
-        # if CUDA == True:
-        #     coords = [a.coord for a in atoms]
-        #     size = len(coords)
-        #     distance = 1/cp.sum((cp.array(coords*len(coords)).reshape(size,size,3)-cp.array(coords).reshape(size,1,3))**2,axis=2)
-        #     cp.fill_diagonal(distance,0)
-        #     distance_matrix = cp.asnumpy(distance)
-        #
-        #     return distance_matrix
+        atoms_xyz = np.array([atoms[i].coord for i in range(len(atoms))])
+        dm = distance_matrix(atoms_xyz, atoms_xyz)
+        dm = np.square(dm)
+        dm = np.reciprocal(dm, out=dm, where=dm!=0)
+        np.fill_diagonal(dm, 0)
 
-        # else:
-        distance_matrix = np.zeros((len(atoms), len(atoms)))
-        for i in range(len(atoms)):
-            for j in range(i+1,len(atoms)):
-                distance_matrix[i][j] = np.linalg.norm(atoms[i].coord-atoms[j].coord)
-                distance_matrix[i][j] = np.square(distance_matrix[i][j])
-                distance_matrix[i][j] = np.reciprocal(distance_matrix[i][j])
-                distance_matrix[j][i] = distance_matrix[i][j]
+        return dm
 
-        return distance_matrix
-
-    def calculateCAlpha(self, normalized=True, CUDA=False):
+    def calculateCAlpha(self, normalized=True):
         """
         Calculates the WCN profile only for alpha carbon atoms.
 
@@ -224,19 +219,14 @@ class WCNObject:
         ----------
         normalized : bool
             Normalize WCN profile?
-        CUDA : bool
-            Whether to use CUDA to calculate the matrix (requires cupy).
 
         Returns
         -------
         wcn_ca : np.ndarray
             WCN profile for alpha carbon atoms
         """
-        if CUDA == True:
-             self.wcn_ca = self.squareInverseDistanceMatrix(self.calpha_atoms, CUDA=True)
-        else:
-            self.wcn_ca = self.squareInverseDistanceMatrix(self.calpha_atoms)
 
+        self.wcn_ca = self.squareInverseDistanceMatrix(self.calpha_atoms)
         self.wcn_ca = np.reciprocal(np.sum(self.wcn_ca, axis=0))
 
         if normalized == True:
@@ -244,7 +234,7 @@ class WCNObject:
 
         return self.wcn_ca
 
-    def calculateAllAtom(self, normalized=True, CUDA=False):
+    def calculateAllAtom(self, normalized=True):
         """
         Calculates the WCN profile for all atoms.
 
@@ -252,8 +242,6 @@ class WCNObject:
         ----------
         normalized : bool
             Normalize WCN profile?
-        CUDA : bool
-            Whether to use CUDA to calculate the matrix (requires cupy).
 
         Returns
         -------
@@ -261,10 +249,7 @@ class WCNObject:
             WCN profile for all atoms
         """
 
-        if CUDA == True:
-             self.wcn_aa = self.squareInverseDistanceMatrix(self.all_atoms, CUDA=True)
-        else:
-            self.wcn_aa = self.squareInverseDistanceMatrix(self.all_atoms)
+        self.wcn_aa = self.squareInverseDistanceMatrix(self.all_atoms)
 
         self.wcn_aa = np.reciprocal(np.sum(self.wcn_aa, axis=0))
 
@@ -273,7 +258,7 @@ class WCNObject:
 
         return self.wcn_aa
 
-    def calculateAveragePerResidue(self, normalized=True, CUDA=False):
+    def calculateAveragePerResidue(self, normalized=True):
         """
         Calculates first an all atom WCN profile and then averages it by residue.
 
@@ -281,8 +266,6 @@ class WCNObject:
         ----------
         normalized : bool
             Normalize WCN profile?
-        CUDA : bool
-            Whether to use CUDA to calculate the matrix (requires cupy).
 
         Returns
         -------
@@ -291,7 +274,7 @@ class WCNObject:
         """
 
         if isinstance(self.wcn_aa, type(None)):
-            self.calculateAllAtom(normalized=False, CUDA=CUDA)
+            self.calculateAllAtom(normalized=normalized)
 
         self.wcn_pr = np.zeros(len(self.residues))
 
@@ -329,10 +312,9 @@ class WCNObject:
                 if c_id not in self.wcn_aa_chain:
                     self.wcn_aa_chain[c_id] = []
                 self.wcn_aa_chain[c_id].append(self.wcn_aa[i])
-            self.wcn_aa_chain[c_id] = np.array(self.wcn_aa_chain[c_id])
 
             for c in self.chains:
-                self.wcn_aa_chain[c.id] = np.array(self.wcn_ca_chain[c.id])
+                self.wcn_aa_chain[c.id] = np.array(self.wcn_aa_chain[c.id])
 
         if isinstance(self.wcn_ca, np.ndarray):
             self.wcn_ca_chain = {}
@@ -349,9 +331,56 @@ class WCNObject:
             for c in self.residues_in_chain:
                 self.wcn_ca_chain[c] = np.array(self.wcn_ca_chain[c])
                 try:
-                    self.residues_in_chain[c] = np.array(self.residues_in_chain[c])
+                    self.residues_in_chain[c] = np.array(self.residues_in_chain[c], dtype=object)
                 except:
                     continue
+
+        if isinstance(self.wcn_pr, np.ndarray):
+            self.wcn_pr_chain = {}
+            self.residues_in_chain = {}
+            for i,a in enumerate(self.calpha_atoms):
+                c_id = a.get_parent().get_parent().id
+                if c_id not in self.wcn_pr_chain:
+                    self.wcn_pr_chain[c_id] = []
+                if c_id not in self.residues_in_chain:
+                    self.residues_in_chain[c_id] = []
+                self.wcn_pr_chain[c_id].append(self.wcn_pr[i])
+                self.residues_in_chain[c_id].append(a.get_parent())
+
+            for c in self.residues_in_chain:
+                self.wcn_pr_chain[c] = np.array(self.wcn_pr_chain[c])\
+
+    def calculateAllAtomForChains(self, chain_ids, normalized=True, overwrite=False):
+
+        if isinstance(chain_ids, str):
+            chain_ids = [chain_ids]
+
+        if not isinstance(chain_ids, list):
+            raise ValueError('Chain IDs must be given as a str or (if more than one) as a list')
+
+        if ''.join(chain_ids) in self.wcn_per_chain and not overwrite:
+            print('Already calculated. Give overwrite=True to recalculate')
+
+        for c in chain_ids:
+            if c not in self.chain_ids:
+                raise ValueError('Chain '+c+' is not present in the protein structure!')
+
+        # Create atoms list
+        atoms = []
+
+        # Save atoms
+        for r in self.residues:
+            if r.get_parent().id in chain_ids:
+                for a in r.get_atoms():
+                    atoms.append(a)
+
+        # Calculate all atom WCN
+        self.wcn_per_chain[''.join(chain_ids)] = self.squareInverseDistanceMatrix(atoms)
+
+        self.wcn_per_chain[''.join(chain_ids)] = np.reciprocal(np.sum(self.wcn_per_chain[''.join(chain_ids)], axis=0))
+
+        if normalized == True:
+            self.wcn_per_chain[''.join(chain_ids)] = _normalize(self.wcn_per_chain[''.join(chain_ids)])
 
     def dumpStructure(self, output_file, wcn_aa_as_bf=False, wcn_ca_as_bf=False,
                       wcn_pr_as_bf=False):
@@ -373,7 +402,7 @@ class WCNObject:
         # Save atoms and residues
         for c in self.chains:
             chains[c.id] = Chain.Chain(c.id)
-            for r in self.residues:
+            for r in c.get_residues():
                 chains[c.id].add(r)
                 residues.append(r)
                 for a in r.get_atoms():
@@ -406,6 +435,102 @@ class WCNObject:
         structure.add(model)
 
         saveStructureToPDB(structure, output_file)
+
+    def saveWCNProfilesToFile(self, file_name):
+
+        directory = '/'.join(file_name.split('/')[:-1])
+        file_name = file_name.split('/')[-1]
+
+        os.chdir(directory)
+
+        # Append a gz extension to given file name
+        if file_name.endswith('.gz'):
+            file_name = file_name.replace('.gz', '')
+
+        # Store WCN into a single compressed file
+        created_files = []
+
+        # Store WCN CA profile
+        if type(self.wcn_ca).__module__ == np.__name__:
+            np.save(file_name+'_wcn_ca.npy', self.wcn_ca)
+            created_files.append(file_name+'_wcn_ca.npy')
+
+        # Store WCN AA profile
+        if type(self.wcn_aa).__module__ == np.__name__:
+            np.save(file_name+'_wcn_aa.npy', self.wcn_aa)
+            created_files.append(file_name+'_wcn_aa.npy')
+
+        # Store WCN PR profile
+        if type(self.wcn_pr).__module__ == np.__name__:
+            np.save(file_name+'_wcn_pr.npy', self.wcn_pr)
+            created_files.append(file_name+'_wcn_pr.npy')
+
+        # Store WCN per-chains profiles
+        for c in self.wcn_per_chain:
+            if type(self.wcn_per_chain[c]).__module__ == np.__name__:
+                np.save(file_name+'_wcn_per_chain_'+c+'.npy', self.wcn_per_chain[c])
+                created_files.append(file_name+'_wcn_per_chain_'+c+'.npy')
+
+        # Create zip object
+        zipObj = ZipFile(file_name+'.gz', 'w')
+
+        # Add files to zip and then remove them
+        for f in created_files:
+            zipObj.write(f)
+            os.remove(f)
+
+        # Close Zip object
+        zipObj.close()
+
+        os.chdir('..'*len(directory.split()))
+
+
+    def readWCNProfilesFromFile(self, wcn_file, verbose=True):
+
+        directory = '/'.join(wcn_file.split('/')[:-1])
+        wcn_file = wcn_file.split('/')[-1]
+
+        # Append .gz to the file name
+        if wcn_file.endswith('.gz'):
+            wcn_file = wcn_file.replace('.gz', '')
+
+        tmpdir = 'wcnTMP'
+
+        # Extract all files to a folder
+        with ZipFile(directory+'/'+wcn_file+'.gz', 'r') as zip_ref:
+            zip_ref.extractall(tmpdir)
+
+        # Check for WCN profile files and load them
+        # Check AA
+        wcn_aa_file = tmpdir+'/'+wcn_file+'_wcn_aa.npy'
+        if os.path.exists(wcn_aa_file):
+            if verbose:
+                print('Found AA WCN profile')
+            self.wcn_aa = np.load(wcn_aa_file)
+
+        # Check CA
+        wcn_ca_file = tmpdir+'/'+wcn_file+'_wcn_ca.npy'
+        if os.path.exists(wcn_ca_file):
+            if verbose:
+                print('Found CA WCN profile')
+            self.wcn_ca = np.load(wcn_ca_file)
+
+        # Check average per residue
+        wcn_pr_file = tmpdir+'/'+wcn_file+'_wcn_pr.npy'
+        if os.path.exists(wcn_pr_file):
+            if verbose:
+                print('Found average-per-residue WCN profile')
+            self.wcn_pr = np.load(wcn_pr_file)
+
+        # Check per-chain
+        for d in os.listdir(tmpdir):
+            if '_wcn_per_chain_' in d:
+                chains = d.split('_')[-1].replace('.npy','')
+                if verbose:
+                    print('Found per-chain WCN profile for chains: '+chains)
+                self.wcn_per_chain[chains] = np.load(tmpdir+'/'+d)
+
+        shutil.rmtree(tmpdir)
 
     def matchAtomsToTrajectory(self, trajectory, return_by_chains=True):
         """

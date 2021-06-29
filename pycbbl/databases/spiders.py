@@ -113,7 +113,10 @@ class uniprotSpider(scrapy.Spider):
         for i,x in enumerate(positions):
             sites[x] = {}
             sites[x]['Feature key'] = feature_keys[i]
-            sites[x]['Description'] = descriptions[i]
+            try:
+                sites[x]['Description'] = descriptions[i]
+            except:
+                sites[x]['Description'] = None
 
     def parseBasicInformation(self, response, current):
 
@@ -302,6 +305,9 @@ class pdbSpider(scrapy.Spider):
         ## Small Molecules information
         self.parseSmallMolecules(response, current)
 
+        ## Literature
+        self.parseLiterature(response, current)
+
     def parseBasicInformation(self, response, current):
         ## Basic entry information ##
         structureTitle = response.css('#structureTitle::text').extract_first()
@@ -383,6 +389,20 @@ class pdbSpider(scrapy.Spider):
             for chain in entity[0]:
                 self.pdb_data[current]['Small Molecules'][chain]['ID'].append(entity[1])
                 self.pdb_data[current]['Small Molecules'][chain]['Name'].append(entity[2])
+
+    def parseLiterature(self, response, current):
+        try:
+            self.pdb_data[current]['Literature'] = {}
+            litpanel = response.css('#literaturepanel .panel-body')
+            title = litpanel.css('#primarycitation h4::text').extract()[0]
+            self.pdb_data[current]['Literature']['Title'] = title
+            for a in litpanel.css('#primarycitation a'):
+                href = a.css('::attr(href)').extract_first()
+                if 'dx.doi.org' in href:
+                    self.pdb_data[current]['Literature']['DOI'] = href
+                    break
+        except:
+            self.pdb_data[current]['Literature'] = None
 
     def closed(self, spider):
         json.dump(self.pdb_data, self.output_file)

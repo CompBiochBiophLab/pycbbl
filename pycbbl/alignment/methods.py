@@ -1,4 +1,4 @@
-from Bio import SeqIO
+from Bio import SeqIO, AlignIO
 
 def readFastaFile(fasta_file):
     """
@@ -59,3 +59,21 @@ def writeMsaToFastaFile(msa, output_file):
         for s in msa:
             of.write('>'+s.id+'\n')
             of.write(str(s.seq)+'\n')
+
+
+def ReadMsaFromFastaFile(alignment_file):
+    """
+    Read an MSA from a fasta file.
+
+    Parameters
+    ----------
+    alignment_file : str
+        Path to the alignment fasta file
+
+    msa : Bio.AlignIO
+        Multiple sequence aligment in Biopython format.
+    """
+
+    msa = AlignIO.read(alignment_file, 'fasta')
+
+    return msa
